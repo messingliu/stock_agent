@@ -35,12 +35,17 @@ YAHOO_CALLS_PER_SECOND = 1
 AKSHARE_CALLS_PER_SECOND = 2
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
-BATCH_SIZE = 100  # number of stocks to process in parallel
+BATCH_SIZE = 100  # number of stocks to process in parallel us
+BATCH_SIZE_CN = 5  # number of stocks to process in parallel cn
+START_DATE = '2020-01-01'
+
+backfill = len(sys.argv) > 1 and sys.argv[1] == '--backfill'
+force_download = len(sys.argv) > 1 and sys.argv[1] == '--download'
 
 # Semaphores for rate limiting
 yahoo_semaphore = asyncio.Semaphore(YAHOO_CALLS_PER_SECOND)
 akshare_semaphore = asyncio.Semaphore(AKSHARE_CALLS_PER_SECOND)
-backfill = len(sys.argv) > 1 and sys.argv[1] == '--backfill'
+
 
 async def retry_with_backoff(func, *args, **kwargs):
     """Retry a function with exponential backoff."""
@@ -69,11 +74,28 @@ def initialize_database():
     engine = get_db_engine()
     
     with engine.begin() as conn:
-        # Drop existing tables if they exist
-        # conn.execute(text("DROP TABLE IF EXISTS us_stock_prices CASCADE"))
-        # conn.execute(text("DROP TABLE IF EXISTS cn_stock_prices CASCADE"))
-        # conn.execute(text("DROP TABLE IF EXISTS us_stocks CASCADE"))
-        # conn.execute(text("DROP TABLE IF EXISTS cn_stocks CASCADE"))
+        # Create stock info tables
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS us_stocks_info (
+                symbol VARCHAR(20) PRIMARY KEY,
+                name VARCHAR(100),
+                exchange VARCHAR(20),
+                market VARCHAR(10),
+                update_time TIMESTAMP
+            )
+        """))
+        print("Created us_stocks_info table")
+        
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS cn_stocks_info (
+                symbol VARCHAR(20) PRIMARY KEY,
+                name VARCHAR(100),
+                exchange VARCHAR(20),
+                market VARCHAR(10),
+                update_time TIMESTAMP
+            )
+        """))
+        print("Created cn_stocks_info table")
         
         # Create price tables
         conn.execute(text("""
@@ -120,25 +142,185 @@ def initialize_database():
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_cn_stock_prices_symbol ON cn_stock_prices(symbol)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_cn_stock_prices_date ON cn_stock_prices(date)"))
 
-# The rest of the code remains the same, just replace "INSERT OR REPLACE" with 
-# "INSERT ... ON CONFLICT ... DO UPDATE" for PostgreSQL upsert syntax
+def get_stored_symbols_count(market='CN'):
+    """获取数据库中存储的股票数量"""
+    engine = get_db_engine()
+    table_name = f"{market.lower()}_stocks_info"
+    with engine.connect() as conn:
+        result = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
+        return result.scalar()
 
-# Remove get_yahoo_stock_info as it's no longer needed
+def update_stock_info(symbols, market='CN'):
+    """更新股票信息到数据库"""
+    engine = get_db_engine()
+    table_name = f"{market.lower()}_stocks_info"
+    
+    with engine.begin() as conn:
+        for symbol_info in symbols:
+            conn.execute(
+                text(f"""
+                    INSERT INTO {table_name} (symbol, name, exchange, market, update_time)
+                    VALUES (:symbol, :name, :exchange, :market, :update_time)
+                    ON CONFLICT (symbol) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        exchange = EXCLUDED.exchange,
+                        market = EXCLUDED.market,
+                        update_time = EXCLUDED.update_time
+                """),
+                {
+                    'symbol': symbol_info['symbol'],
+                    'name': symbol_info.get('name', symbol_info['symbol']),
+                    'exchange': symbol_info['exchange'],
+                    'market': market,
+                    'update_time': datetime.now()
+                }
+            )
 
-# def clean_symbol(symbol):
-#     """Clean symbol for Yahoo Finance API"""
-#     # Handle special cases
-#     if symbol == 'BF.B':
-#         return 'BF-B'
-#     if symbol == 'BRK.B':
-#         return 'BRK-B'
-#     return symbol
+def get_symbols_from_db(market='CN'):
+    """从数据库获取股票信息"""
+    engine = get_db_engine()
+    table_name = f"{market.lower()}_stocks_info"
+    
+    filename = os.path.join('stock_lists', f'successful_symbols_cn.txt')
+    finished_symbols = []
+    if not os.path.exists(filename):
+        print(f"File not found: {filename}")
+    else:        
+        with open(filename, 'r') as f:
+            for line in f:
+                parts = line.strip().split('|')
+                finished_symbols.append(parts[0])
+
+    with engine.connect() as conn:
+        result = conn.execute(text(f"SELECT * FROM {table_name}"))
+        symbols = []
+        for row in result:
+            if row.symbol not in finished_symbols:
+                symbols.append({
+                    'symbol': row.symbol,
+                    'name': row.name,
+                    'exchange': row.exchange,
+                    'market': row.market
+                })
+        print("symbols count: ", len(symbols))
+        return symbols
+
+
+MAX_RETRY_COUNT = 3
+FALLBACK_THRESHOLD = 0.5  # 如果获取到的数据少于数据库中的50%，则使用数据库数据
+
+def get_all_us_symbols(use_db=True):
+    """获取所有美股股票代码，带重试和回退机制"""
+    retry_count = 0
+    stored_count = get_stored_symbols_count('US') if use_db else 0
+    
+    while retry_count < MAX_RETRY_COUNT:
+        try:
+            symbols = []
+            us_stocks = ak.stock_us_spot_em()
+            # 处理股票代码，移除前缀（例如：'AAPL.US' -> 'AAPL'）
+            symbols.extend([{
+                'symbol': symbol.split('.')[1].replace('_', '.') if '.' in symbol else symbol,
+                'name': name,
+                'exchange': 'US'
+            } for symbol, name in zip(us_stocks['代码'], us_stocks['名称'])])
+            print("us symbols count: ", len(symbols))
+            
+            # 检查数据质量
+            if stored_count > 0 and len(symbols) < stored_count * FALLBACK_THRESHOLD:
+                print(f"Warning: Only got {len(symbols)} symbols, which is less than {FALLBACK_THRESHOLD*100}% of stored {stored_count} symbols")
+                if retry_count < MAX_RETRY_COUNT - 1:
+                    retry_count += 1
+                    print(f"Retrying... (attempt {retry_count + 1}/{MAX_RETRY_COUNT})")
+                    continue
+                else:
+                    print("Using stored data from database")
+                    symbols = get_symbols_from_db('US')
+            else:
+                # 更新数据库
+                update_stock_info(symbols, 'US')
+            
+            return symbols
+            
+        except Exception as e:
+            print(f"Error getting US symbols: {str(e)}")
+            retry_count += 1
+            if retry_count < MAX_RETRY_COUNT:
+                print(f"Retrying... (attempt {retry_count + 1}/{MAX_RETRY_COUNT})")
+            else:
+                print("Using stored data from database")
+                return get_symbols_from_db('US')
+            delay = RETRY_DELAY * (2 ** retry_count)  # Exponential backoff
+            print(f"Attempt {retry_count + 1} failed with error: {str(e)}. Retrying in {delay} seconds...")
+            time.sleep(delay)
+
+    return get_symbols_from_db('US')
+
+def get_all_china_symbols(use_db=True):
+    """获取所有A股股票代码，带重试和回退机制"""
+    retry_count = 0
+    stored_count = get_stored_symbols_count('CN') if use_db else 0
+    
+    while retry_count < MAX_RETRY_COUNT:
+        try:
+            symbols = []
+            
+            # 获取上海证券交易所股票
+            sh_stocks = ak.stock_sh_a_spot_em()
+            symbols.extend([{
+                'symbol': row['代码'],
+                'name': row['名称'],
+                'exchange': 'SH'
+            } for _, row in sh_stocks.iterrows()])
+            
+            # 获取深圳证券交易所股票
+            sz_stocks = ak.stock_sz_a_spot_em()
+            symbols.extend([{
+                'symbol': row['代码'],
+                'name': row['名称'],
+                'exchange': 'SZ'
+            } for _, row in sz_stocks.iterrows()])
+            
+            # 获取北京证券交易所股票
+            bj_stocks = ak.stock_bj_a_spot_em()
+            symbols.extend([{
+                'symbol': row['代码'],
+                'name': row['名称'],
+                'exchange': 'BJ'
+            } for _, row in bj_stocks.iterrows()])
+            
+            # 检查数据质量
+            if stored_count > 0 and len(symbols) < stored_count * FALLBACK_THRESHOLD:
+                print(f"Warning: Only got {len(symbols)} symbols, which is less than {FALLBACK_THRESHOLD*100}% of stored {stored_count} symbols")
+                if retry_count < MAX_RETRY_COUNT - 1:
+                    retry_count += 1
+                    print(f"Retrying... (attempt {retry_count + 1}/{MAX_RETRY_COUNT})")
+                    continue
+                else:
+                    print("Using stored data from database")
+                    symbols = get_symbols_from_db('CN')
+            else:
+                # 更新数据库
+                update_stock_info(symbols, 'CN')
+            
+            return symbols
+            
+        except Exception as e:
+            print(f"Error getting China symbols: {str(e)}")
+            retry_count += 1
+            if retry_count < MAX_RETRY_COUNT:
+                print(f"Retrying... (attempt {retry_count + 1}/{MAX_RETRY_COUNT})")
+            else:
+                print("Using stored data from database")
+                return get_symbols_from_db('CN')
+            delay = RETRY_DELAY * (2 ** retry_count)  # Exponential backoff
+            print(f"Attempt {retry_count + 1} failed with error: {str(e)}. Retrying in {delay} seconds...")
+            time.sleep(delay)
+    
+    return get_symbols_from_db('CN')
 
 async def get_stocks_history(symbols, start_date):
     """Download historical data for multiple stocks in one request"""
-    # Clean symbols
-    # cleaned_symbols = [clean_symbol(symbol) for symbol in symbols]
-    
     with ThreadPoolExecutor() as pool:
         loop = asyncio.get_event_loop()
         try:
@@ -211,7 +393,7 @@ async def process_us_stocks_batch(symbol_infos, engine):
     """Process a batch of US stocks asynchronously"""
     try:
         symbols = [info['symbol'] for info in symbol_infos]
-        default_start = datetime.strptime('2000-01-01', '%Y-%m-%d').date()
+        default_start = datetime.strptime(START_DATE, '%Y-%m-%d').date()
         start_date = default_start
         successful_symbols = set()
 
@@ -235,9 +417,7 @@ async def process_us_stocks_batch(symbol_infos, engine):
                         if symbol_data.empty:
                             print(f"Empty data for {symbol}")
                             continue
-                            
-                        symbol_data = symbol_data.copy()  # Fix fragmentation warning
-                        
+                        symbol_data = symbol_data[symbol_data['Close'].notna()].copy()  # Fix fragmentation warning
                         # Calculate moving averages before resetting index
                         symbol_data = calculate_moving_averages(symbol_data)
                         
@@ -304,7 +484,7 @@ async def process_china_stock(symbol_info, engine):
     try:
         async with akshare_semaphore:
             with engine.begin() as conn:
-                start_date = datetime.strptime('2000-01-01', '%Y-%m-%d').date()
+                start_date = datetime.strptime(START_DATE, '%Y-%m-%d').date()
                 
                 if start_date < datetime.now().date():
                     with ThreadPoolExecutor() as pool:
@@ -314,7 +494,7 @@ async def process_china_stock(symbol_info, engine):
                             lambda: ak.stock_zh_a_hist(
                                 symbol=symbol,
                                 period="daily",
-                                start_date="20100101",
+                                start_date=START_DATE,
                                 end_date=datetime.now().strftime("%Y%m%d"),
                                 adjust="qfq"
                             )
@@ -376,10 +556,19 @@ async def process_china_stock(symbol_info, engine):
                                     'ma200': round(float(row['ma200']), 2) if pd.notna(row['ma200']) else None
                                 })
                             successful_symbols.add(symbol)
+                            
+                            filename = os.path.join('stock_lists', f'successful_symbols_cn.txt')                            
+                            # 确保文件存在
+                            if not os.path.exists(filename):
+                                open(filename, 'a').close()
+                            with open(filename, 'a') as f:
+                                f.write(f"{symbol}\n")
+
             await asyncio.sleep(1/AKSHARE_CALLS_PER_SECOND)  # Rate limiting
     except Exception as e:
         print(f"Error processing China stock {symbol}: {str(e)}")
         save_stock_to_file(symbol, 'CN', 'failed', str(e))
+        await asyncio.sleep(1)  # Rate limiting
     
     return len(successful_symbols)
 
@@ -479,8 +668,11 @@ def get_all_stock_symbols_from_file(market, status='failed'):
 async def download_us_stocks_async():
     if backfill:
         symbols = get_all_stock_symbols_from_file('us')
+    elif force_download:
+        symbols = get_all_us_symbols(True)
     else:
-        symbols = get_all_us_symbols()
+        symbols = get_symbols_from_db('US')
+
     engine = get_db_engine()
     total_symbols = len(symbols)
     stats = DownloadStats()
@@ -533,16 +725,19 @@ async def download_china_stocks_async():
     """Download China stock data asynchronously in batches"""
     if backfill:
         symbols = get_all_stock_symbols_from_file('cn')
+    elif force_download:
+        symbols = get_all_china_symbols(True)
     else:
-        symbols = get_all_china_symbols()
+        symbols = get_symbols_from_db('CN')
+
     engine = get_db_engine()
     total_symbols = len(symbols)
     completed = 0
     
     with tqdm(total=total_symbols, desc="Downloading China stocks") as pbar:
         # Process symbols in batches
-        for i in range(0, total_symbols, BATCH_SIZE):
-            batch = symbols[i:i + BATCH_SIZE]
+        for i in range(0, total_symbols, BATCH_SIZE_CN):
+            batch = symbols[i:i + BATCH_SIZE_CN]
             tasks = []
             for symbol_info in batch:
                 task = asyncio.create_task(process_china_stock(symbol_info, engine))
@@ -554,60 +749,9 @@ async def download_china_stocks_async():
             pbar.update(len(batch))
             
             # Add a small delay between batches
-            if i + BATCH_SIZE < total_symbols:
+            if i + BATCH_SIZE_CN < total_symbols:
                 await asyncio.sleep(1)
 
-def get_all_us_symbols():
-    """Get symbols from multiple US exchanges"""
-    symbols = []
-    
-    try:
-        sp500_url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv"
-        sp500_stocks = pd.read_csv(sp500_url)
-        symbols.extend([{'symbol': symbol, 'exchange': 'SPY'} for symbol in sp500_stocks['Symbol']])
-    except Exception as e:
-        print(f"Error getting S&P 500 symbols: {str(e)}")
-    
-    try:
-        nasdaq_stocks = ak.stock_us_spot_em()
-        nasdaq_symbols = nasdaq_stocks[nasdaq_stocks['市场'].str.contains('NASDAQ', na=False)]
-        symbols.extend([{'symbol': symbol, 'exchange': 'NASDAQ'} 
-                       for symbol in nasdaq_symbols['代码'].tolist()])
-        
-        nyse_symbols = nasdaq_stocks[nasdaq_stocks['市场'].str.contains('NYSE', na=False)]
-        symbols.extend([{'symbol': symbol, 'exchange': 'NYSE'} 
-                       for symbol in nyse_symbols['代码'].tolist()])
-    except Exception as e:
-        print(f"Error getting NASDAQ/NYSE symbols: {str(e)}")
-    
-    return symbols
-
-def get_all_china_symbols():
-    """Get symbols from all Chinese exchanges"""
-    symbols = []
-    
-    try:
-        sh_stocks = ak.stock_info_sh_name_code()
-        symbols.extend([{'symbol': row['code'], 'name': row['name'], 'exchange': 'SH'} 
-                       for _, row in sh_stocks.iterrows()])
-    except Exception as e:
-        print(f"Error getting Shanghai symbols: {str(e)}")
-    
-    try:
-        sz_stocks = ak.stock_info_sz_name_code()
-        symbols.extend([{'symbol': row['code'], 'name': row['name'], 'exchange': 'SZ'} 
-                       for _, row in sz_stocks.iterrows()])
-    except Exception as e:
-        print(f"Error getting Shenzhen symbols: {str(e)}")
-    
-    try:
-        bj_stocks = ak.stock_bj_a_spot_em()
-        symbols.extend([{'symbol': row['代码'], 'name': row['名称'], 'exchange': 'BJ'} 
-                       for _, row in bj_stocks.iterrows()])
-    except Exception as e:
-        print(f"Error getting Beijing symbols: {str(e)}")
-    
-    return symbols
 
 async def main_async():
     # Initialize database
@@ -616,11 +760,11 @@ async def main_async():
     
     # Create tasks for US and China stocks
     us_task = asyncio.create_task(download_us_stocks_async())
-    china_task = asyncio.create_task(download_china_stocks_async())
+    #china_task = asyncio.create_task(download_china_stocks_async())
     
     # Wait for both tasks to complete
-    await asyncio.gather(us_task, china_task)
-    #await asyncio.gather(china_task)
+    #await asyncio.gather(us_task, china_task)    #await asyncio.gather(us_task)
+    await asyncio.gather(us_task)
 
 def main():
     # Run the async main function
