@@ -9,3 +9,8 @@ tqdm==4.66.2
 aiohttp==3.11.13
 asyncio==3.4.3
 nest-asyncio==1.6.0
+flask==2.3.3
+flask-cors==4.0.0
+sqlalchemy==2.0.19
+cryptography==41.0.3
+waitress==2.1.2
