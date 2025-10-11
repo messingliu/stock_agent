@@ -217,15 +217,14 @@ def get_all_us_symbols(use_db=True):
     while retry_count < MAX_RETRY_COUNT:
         try:
             symbols = []
-            us_stocks = ak.stock_us_spot_em()
+            us_stocks = ak.get_us_stock_name()
             # 处理股票代码，移除前缀（例如：'AAPL.US' -> 'AAPL'）
             symbols.extend([{
                 'symbol': symbol.split('.')[1].replace('_', '.') if '.' in symbol else symbol,
                 'name': name,
                 'exchange': 'US'
-            } for symbol, name in zip(us_stocks['代码'], us_stocks['名称'])])
+            } for symbol, name in zip(us_stocks['symbol'], us_stocks['name'])])
             print("us symbols count: ", len(symbols))
-            
             # 检查数据质量
             if stored_count > 0 and len(symbols) < stored_count * FALLBACK_THRESHOLD:
                 print(f"Warning: Only got {len(symbols)} symbols, which is less than {FALLBACK_THRESHOLD*100}% of stored {stored_count} symbols")
