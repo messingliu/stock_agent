@@ -234,26 +234,23 @@ def create_ssl_context():
 
 def main():
     """启动Web服务"""
+    # Create SSL context and save certificate files
     ssl_context = create_ssl_context()
     
-    # Use Waitress WSGI server instead of Flask's development server
-    # Waitress handles HTTP/2 properly and is more robust for production
-    from waitress import serve
-    
-    print("Starting Stock Service with Waitress WSGI server...")
+    print("Starting Stock Service...")
     print("Server will be available at: https://0.0.0.0:5000")
     print("Press Ctrl+C to stop the server")
     
-    serve(
-        app,
+    # Use Flask's development server with optimized settings
+    # This should handle HTTP/2 requests better than the default configuration
+    app.run(
         host='0.0.0.0',
         port=5000,
         ssl_context=ssl_context,
-        threads=4,
-        connection_limit=1000,
-        cleanup_interval=30,
-        channel_timeout=120,
-        log_socket_errors=True
+        debug=False,  # Disable debug mode for better performance
+        threaded=True,  # Enable threading for concurrent requests
+        use_reloader=False,  # Disable auto-reloader to avoid conflicts
+        processes=1  # Single process to avoid SSL context issues
     )
 
 if __name__ == "__main__":
