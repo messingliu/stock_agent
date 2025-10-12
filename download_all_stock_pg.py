@@ -758,15 +758,11 @@ async def main_async():
     initialize_database()
     print(f"Initialized database")
     
-    # Create tasks for US and China stocks
-    us_task = asyncio.create_task(download_us_stocks_async())
-    china_task = asyncio.create_task(download_china_stocks_async())
-    
-    # Wait for both tasks to complete
-    #await asyncio.gather(us_task, china_task)    #await asyncio.gather(us_task)
     if china_stock:
+        china_task = asyncio.create_task(download_china_stocks_async())
         await asyncio.gather(china_task)
     else:
+        us_task = asyncio.create_task(download_us_stocks_async())
         await asyncio.gather(us_task)
 
 def main():
