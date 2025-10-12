@@ -103,14 +103,14 @@ def find_stocks_by_price():
     """根据价格范围查找股票的API"""
     try:
         # 获取请求参数
-        market = request.args.get('market', 'china')
+        market = request.args.get('market', 'cn')
         days = int(request.args.get('days', 1))
         price_type = request.args.get('price_type', 'close')
         price_low = float(request.args.get('price_low', 0))
         price_high = float(request.args.get('price_high', float('inf')))
         
         # 参数验证
-        if market.lower() not in ['us', 'china']:
+        if market.lower() not in ['us', 'cn']:
             return jsonify({'error': 'Invalid market parameter'}), 400
             
         if price_type.lower() not in ['low', 'high', 'close']:
@@ -151,10 +151,10 @@ def apply_strategies():
     """应用策略查找股票的API"""
     try:
         # 获取请求参数
-        market = request.args.get('market', 'china')
+        market = request.args.get('market', 'cn')
         
         # 参数验证
-        if market.lower() not in ['us', 'china']:
+        if market.lower() not in ['us', 'cn']:
             return jsonify({'error': 'Invalid market parameter'}), 400
         
         # 调用服务
