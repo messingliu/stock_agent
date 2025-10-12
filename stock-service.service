@@ -1,0 +1,17 @@
+[Unit]
+Description=Stock Service API
+After=network.target
+
+[Service]
+Type=exec
+User=lighthouse
+Group=lighthouse
+WorkingDirectory=/home/lighthouse/src/stock_agent
+Environment=PATH=/home/lighthouse/src/stock_agent/venv/bin
+ExecStart=/home/lighthouse/src/stock_agent/venv/bin/gunicorn --config gunicorn.conf.py wsgi:application
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

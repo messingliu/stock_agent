@@ -41,6 +41,7 @@ START_DATE = '2020-01-01'
 
 backfill = len(sys.argv) > 1 and sys.argv[1] == '--backfill'
 force_download = len(sys.argv) > 1 and sys.argv[1] == '--download'
+china_stock = len(sys.argv) > 1 and sys.argv[1] == '--china'
 
 # Semaphores for rate limiting
 yahoo_semaphore = asyncio.Semaphore(YAHOO_CALLS_PER_SECOND)
@@ -190,7 +191,7 @@ def get_symbols_from_db(market='CN'):
             for line in f:
                 parts = line.strip().split('|')
                 finished_symbols.append(parts[0])
-
+    print("finished_symbols count: ", len(finished_symbols))
     with engine.connect() as conn:
         result = conn.execute(text(f"SELECT * FROM {table_name}"))
         symbols = []
@@ -759,11 +760,14 @@ async def main_async():
     
     # Create tasks for US and China stocks
     us_task = asyncio.create_task(download_us_stocks_async())
-    #china_task = asyncio.create_task(download_china_stocks_async())
+    china_task = asyncio.create_task(download_china_stocks_async())
     
     # Wait for both tasks to complete
     #await asyncio.gather(us_task, china_task)    #await asyncio.gather(us_task)
-    await asyncio.gather(us_task)
+    if china_stock:
+        await asyncio.gather(china_task)
+    else:
+        await asyncio.gather(us_task)
 
 def main():
     # Run the async main function

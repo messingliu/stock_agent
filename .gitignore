@@ -1,0 +1,6 @@
+venv
+cert.pem
+*.pem
+.venv
+__pycache__
+stock_lists
