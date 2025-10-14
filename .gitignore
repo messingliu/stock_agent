@@ -4,3 +4,4 @@ cert.pem
 .venv
 __pycache__
 stock_lists
+config.yaml

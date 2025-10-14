@@ -14,6 +14,7 @@ import requests
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 import sys
+import tushare as ts
 
 # Enable nested asyncio for Jupyter compatibility
 nest_asyncio.apply()
@@ -21,23 +22,20 @@ nest_asyncio.apply()
 # Load environment variables
 load_dotenv()
 
-# Database configuration
-DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'localhost'),
-    'port': os.getenv('DB_PORT', '5432'),
-    'database': os.getenv('DB_NAME', 'stock_db'),
-    'user': os.getenv('DB_USER', 'mengliu'),
-    'password': os.getenv('DB_PASSWORD', 'password')
-}
+# 导入配置
+from config import config
 
-# Rate limiting settings
-YAHOO_CALLS_PER_SECOND = 1
-AKSHARE_CALLS_PER_SECOND = 2
-MAX_RETRIES = 3
-RETRY_DELAY = 5  # seconds
-BATCH_SIZE = 100  # number of stocks to process in parallel us
-BATCH_SIZE_CN = 5  # number of stocks to process in parallel cn
-START_DATE = '2020-01-01'
+# 设置Tushare token
+ts.set_token(config.tushare_token)
+
+# 从配置文件获取设置
+YAHOO_CALLS_PER_SECOND = config.rate_limits['yahoo']
+AKSHARE_CALLS_PER_SECOND = config.rate_limits['akshare']
+MAX_RETRIES = config.retry_config['max_retries']
+RETRY_DELAY = config.retry_config['base_delay']
+BATCH_SIZE = config.batch_sizes['us']
+BATCH_SIZE_CN = config.batch_sizes['cn']
+START_DATE = config.date_range['start_date']
 
 backfill = len(sys.argv) > 1 and sys.argv[1] == '--backfill'
 force_download = len(sys.argv) > 1 and sys.argv[1] == '--download'
@@ -66,9 +64,7 @@ async def retry_with_backoff(func, *args, **kwargs):
 
 def get_db_engine():
     """Create SQLAlchemy engine for PostgreSQL"""
-    return create_engine(
-        f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
-    )
+    return create_engine(config.db_url)
 
 def initialize_database():
     """Create tables if they don't exist"""
@@ -488,27 +484,31 @@ async def process_china_stock(symbol_info, engine):
                 
                 if start_date < datetime.now().date():
                     with ThreadPoolExecutor() as pool:
+                        stock_code_suf = symbol
+                        if symbol >= '800000':
+                            stock_code_suf = str(symbol).zfill(6) + '.BJ'
+                        elif symbol > '600000':
+                            stock_code_suf = str(symbol).zfill(6) + '.SH'
+                        else:
+                            stock_code_suf = str(symbol).zfill(6) + '.SZ'
+
                         loop = asyncio.get_event_loop()
                         hist = await loop.run_in_executor(
                             pool,
-                            lambda: ak.stock_zh_a_hist(
-                                symbol=symbol,
-                                period="daily",
-                                start_date=START_DATE,
-                                end_date=datetime.now().strftime("%Y%m%d"),
-                                adjust="qfq"
-                            )
+                            lambda: ts.pro_api().daily(ts_code=stock_code_suf, 
+                                    start_date=START_DATE, 
+                                    end_date=datetime.now().strftime("%Y%m%d"))
                         )
                         
                         if not hist.empty:
                             # 转换列名以匹配英文格式
                             hist = hist.rename(columns={
-                                '日期': 'Date',
-                                '开盘': 'Open',
-                                '最高': 'High',
-                                '最低': 'Low',
-                                '收盘': 'Close',
-                                '成交量': 'Volume'
+                                'trade_date': 'Date',
+                                'open': 'Open',
+                                'high': 'High',
+                                'low': 'Low',
+                                'close': 'Close',
+                                'vol': 'Volume'
                             })
                             hist['Date'] = pd.to_datetime(hist['Date'])
                             hist.set_index('Date', inplace=True)

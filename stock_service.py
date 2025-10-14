@@ -16,20 +16,12 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)  # 启用CORS支持
 
-# 数据库配置
-DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'localhost'),
-    'port': os.getenv('DB_PORT', '5432'),
-    'database': os.getenv('DB_NAME', 'stock_db'),
-    'user': os.getenv('DB_USER', 'mengliu'),
-    'password': os.getenv('DB_PASSWORD', 'password')
-}
+# 导入配置
+from config import config
 
 def get_db_engine():
     """创建PostgreSQL数据库连接"""
-    return create_engine(
-        f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
-    )
+    return create_engine(config.db_url)
 
 class StockService:
     def __init__(self):
@@ -234,18 +226,20 @@ def create_ssl_context():
 
 def main():
     """启动Web服务"""
-    # Create SSL context and save certificate files
-    ssl_context = create_ssl_context()
+    web_config = config.get('web_service')
     
-    print("Starting Stock Service...")
-    print("Server will be available at: https://0.0.0.0:5000")
+    # 如果启用SSL，创建SSL上下文
+    ssl_context = create_ssl_context() if web_config['ssl']['enabled'] else None
+    
+    print(f"Starting Stock Service...")
+    protocol = "https" if web_config['ssl']['enabled'] else "http"
+    print(f"Server will be available at: {protocol}://{web_config['host']}:{web_config['port']}")
     print("Press Ctrl+C to stop the server")
     
     # Use Flask's development server with optimized settings
-    # This should handle HTTP/2 requests better than the default configuration
     app.run(
-        host='0.0.0.0',
-        port=5000,
+        host=web_config['host'],
+        port=web_config['port'],
         ssl_context=ssl_context,
         debug=False,  # Disable debug mode for better performance
         threaded=True,  # Enable threading for concurrent requests
