@@ -46,7 +46,7 @@ class StockService:
         # 构建查询
         query = f"""
             WITH latest_prices AS (
-                SELECT DISTINCT ON (symbol) *
+                SELECT *
                 FROM {table_name}
                 WHERE date >= CURRENT_DATE - INTERVAL ':days days'
                 ORDER BY symbol, date DESC
