@@ -48,7 +48,7 @@ class StockService:
             WITH latest_prices AS (
                 SELECT *
                 FROM {table_name}
-                WHERE date >= CURRENT_DATE - INTERVAL ':days days'
+                WHERE date >= CURRENT_DATE - INTERVAL ':days days' AND p.{price_type} BETWEEN :price_low AND :price_high
                 ORDER BY symbol, date DESC
             )
             SELECT DISTINCT p.symbol,
@@ -58,7 +58,6 @@ class StockService:
                    p.{price_type} as price
             FROM latest_prices p
             LEFT JOIN {market_code}_stocks_info i ON p.symbol = i.symbol
-            WHERE p.{price_type} BETWEEN :price_low AND :price_high
             ORDER BY p.{price_type}
         """
         
