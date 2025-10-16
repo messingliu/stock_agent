@@ -27,7 +27,6 @@ class StockService:
     def __init__(self):
         self.engine = get_db_engine()
         self.strategies = [
-            stock_strategy.GoldenLineDoubleGreenWin()
         ]
 
     def find_stocks_by_price(

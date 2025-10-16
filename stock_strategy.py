@@ -2,131 +2,16 @@ import os
 from datetime import datetime, timedelta
 import pandas as pd
 from sqlalchemy import create_engine, text
-from abc import ABC, abstractmethod
 from typing import List, Dict, Any
-from dataclasses import dataclass
 from dotenv import load_dotenv
 
-# 加载环境变量
-load_dotenv()
-
-# 数据库配置
-DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'localhost'),
-    'port': os.getenv('DB_PORT', '5432'),
-    'database': os.getenv('DB_NAME', 'stock_db'),
-    'user': os.getenv('DB_USER', 'mengliu'),
-    'password': os.getenv('DB_PASSWORD', 'password')
-}
+# 导入配置和策略
+from config import config
+from strategies import AVAILABLE_STRATEGIES, Strategy
 
 def get_db_engine():
     """创建PostgreSQL数据库连接"""
-    return create_engine(
-        f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
-    )
-
-def calc_goldenline_double_green_win(today: pd.Series, yesterday: pd.Series) -> bool:
-    """
-    计算双阳夹MA60策略
-    """
-    try:
-        # 规则1：今天收阳，昨天收阴
-        rule1 = (today['close'] > today['open']) and (yesterday['close'] < yesterday['open'])
-
-        # 规则2：今天实体大于昨天实体
-        today_body = today['close'] - today['open']
-        yesterday_body = yesterday['open'] - yesterday['close']
-        rule2 = today_body > yesterday_body
-
-        # 规则3：今天最低价低于MA60，收盘价高于MA60
-        rule3 = (today['low'] < today['ma60']) and (today['close'] > today['ma60'])
-
-        # 规则4：今天成交量大于昨天
-        rule4 = today['volume'] > yesterday['volume']
-
-        # 规则5：今天收盘价高于昨天开盘价
-        rule5 = today['close'] > yesterday['open']
-
-        return all([rule1, rule2, rule3, rule4, rule5])
-    except Exception as e:
-        print(f"Error applying calc_goldenline_double_green_win to {today['symbol']}: {str(e)}")
-        return False
-
-@dataclass
-class StockData:
-    """股票数据类"""
-    symbol: str
-    date: datetime
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: int
-    ma5: float
-    ma10: float
-    ma20: float
-    ma60: float
-    ma200: float
-
-class Strategy(ABC):
-    """策略基类"""
-    def __init__(self, name: str, description: str):
-        self.name = name
-        self.description = description
-
-    @abstractmethod
-    def apply(self, data: pd.DataFrame) -> bool:
-        """应用策略"""
-        pass
-
-    def __str__(self):
-        return f"{self.name}: {self.description}"
-
-class GoldenLineDoubleGreenWin(Strategy):
-    """双阳夹MA60策略"""
-    def __init__(self):
-        super().__init__(
-            name="GoldenLineDoubleGreenWin",
-            description="双阳夹MA60策略：连续两天上涨，第二天的涨幅大于第一天，且股价突破MA60，放量"
-        )
-
-    def apply(self, data: pd.DataFrame) -> bool:
-        """
-        应用双阳夹MA60策略
-        规则：
-        1. today's close > open and yesterday's close < open
-        2. today's close - open > yesterday's open - close
-        3. today's low < MA60 and today's close > MA60
-        4. todays' volume > yesterday's volume
-        5. today's close > yesterday's open
-        """
-        if len(data) < 2:  # 需要至少两天的数据
-            return False
-
-        today = data.iloc[-1]
-        yesterday = data.iloc[-2]
-
-        return calc_goldenline_double_green_win(today, yesterday)
-
-class GoldenLineDoubleGreenWinWithConfirmation(Strategy):
-    """双阳夹MA60策略，且第三天确认"""
-    def __init__(self):
-        super().__init__(
-            name="GoldenLineDoubleGreenWinWithConfirmation",
-            description="双阳夹MA60策略：连续两天上涨，第二天的涨幅大于第一天，且股价突破MA60，而且第三天确认"
-        )
-
-    def apply(self, data: pd.DataFrame) -> bool:
-
-        if len(data) < 3:  # 需要至少三天的数据
-            return False
-
-        today = data.iloc[-1]
-        yesterday = data.iloc[-2]
-        third = data.iloc[-3]
-        if not calc_goldenline_double_green_win(today, yesterday):
-            return False
-        return today['open'] > yesterday['close'] or today['close'] > yesterday['close']
+    return create_engine(config.db_url)
 
 class StockAnalyzer:
     """股票分析器"""
@@ -199,11 +84,20 @@ class StockAnalyzer:
                     continue
         return results
 
-def apply_strategies(market: str, strategy: str) -> Dict[str, List[Dict[str, Any]]]:
+def apply_strategies(market: str, strategy_name: str = None) -> Dict[str, List[Dict[str, Any]]]:
     """应用策略查找股票"""
     analyzer = StockAnalyzer(market)
-    strategy_class = globals()[strategy]()
-    analyzer.add_strategy(strategy_class)
+    
+    if strategy_name:
+        if strategy_name not in AVAILABLE_STRATEGIES:
+            raise ValueError(f"Strategy {strategy_name} not found. Available strategies: {list(AVAILABLE_STRATEGIES.keys())}")
+        strategy_class = AVAILABLE_STRATEGIES[strategy_name]
+        analyzer.add_strategy(strategy_class())
+    else:
+        # 如果没有指定策略，使用所有可用策略
+        for strategy_class in AVAILABLE_STRATEGIES.values():
+            analyzer.add_strategy(strategy_class())
+    
     return analyzer.analyze()
 
 def main():
@@ -211,10 +105,11 @@ def main():
     us_analyzer = StockAnalyzer('us')
     cn_analyzer = StockAnalyzer('cn')
 
-    # 添加策略
-    golden_line_strategy = GoldenLineDoubleGreenWin()
-    us_analyzer.add_strategy(golden_line_strategy)
-    cn_analyzer.add_strategy(golden_line_strategy)
+    # 添加所有策略
+    for strategy_class in AVAILABLE_STRATEGIES.values():
+        strategy = strategy_class()
+        us_analyzer.add_strategy(strategy)
+        cn_analyzer.add_strategy(strategy)
 
     # 分析美股
     print("\n分析美股市场...")
