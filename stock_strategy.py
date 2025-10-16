@@ -25,6 +25,33 @@ def get_db_engine():
         f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
     )
 
+def calc_goldenline_double_green_win(today: pd.Series, yesterday: pd.Series) -> bool:
+    """
+    计算双阳夹MA60策略
+    """
+    try:
+        # 规则1：今天收阳，昨天收阴
+        rule1 = (today['close'] > today['open']) and (yesterday['close'] < yesterday['open'])
+
+        # 规则2：今天实体大于昨天实体
+        today_body = today['close'] - today['open']
+        yesterday_body = yesterday['open'] - yesterday['close']
+        rule2 = today_body > yesterday_body
+
+        # 规则3：今天最低价低于MA60，收盘价高于MA60
+        rule3 = (today['low'] < today['ma60']) and (today['close'] > today['ma60'])
+
+        # 规则4：今天成交量大于昨天
+        rule4 = today['volume'] > yesterday['volume']
+
+        # 规则5：今天收盘价高于昨天开盘价
+        rule5 = today['close'] > yesterday['open']
+
+        return all([rule1, rule2, rule3, rule4, rule5])
+    except Exception as e:
+        print(f"Error applying calc_goldenline_double_green_win to {today['symbol']}: {str(e)}")
+        return False
+
 @dataclass
 class StockData:
     """股票数据类"""
@@ -79,28 +106,27 @@ class GoldenLineDoubleGreenWin(Strategy):
         today = data.iloc[-1]
         yesterday = data.iloc[-2]
 
-        try:
-            # 规则1：今天收阳，昨天收阴
-            rule1 = (today['close'] > today['open']) and (yesterday['close'] < yesterday['open'])
+        return calc_goldenline_double_green_win(today, yesterday)
 
-            # 规则2：今天实体大于昨天实体
-            today_body = today['close'] - today['open']
-            yesterday_body = yesterday['open'] - yesterday['close']
-            rule2 = today_body > yesterday_body
+class GoldenLineDoubleGreenWinWithConfirmation(Strategy):
+    """双阳夹MA60策略，且第三天确认"""
+    def __init__(self):
+        super().__init__(
+            name="GoldenLineDoubleGreenWinWithConfirmation",
+            description="双阳夹MA60策略：连续两天上涨，第二天的涨幅大于第一天，且股价突破MA60，而且第三天确认"
+        )
 
-            # 规则3：今天最低价低于MA60，收盘价高于MA60
-            rule3 = (today['low'] < today['ma60']) and (today['close'] > today['ma60'])
+    def apply(self, data: pd.DataFrame) -> bool:
 
-            # 规则4：今天成交量大于昨天
-            rule4 = today['volume'] > yesterday['volume']
-
-            # 规则5：今天收盘价高于昨天开盘价
-            rule5 = today['close'] > yesterday['open']
-
-            return all([rule1, rule2, rule3, rule4, rule5])
-        except Exception as e:
-            print(f"Error applying strategy to {data.iloc[-1]['symbol']}: {str(e)}")
+        if len(data) < 3:  # 需要至少三天的数据
             return False
+
+        today = data.iloc[-1]
+        yesterday = data.iloc[-2]
+        third = data.iloc[-3]
+        if not calc_goldenline_double_green_win(today, yesterday):
+            return False
+        return today['open'] > yesterday['close'] or today['close'] > yesterday['close']
 
 class StockAnalyzer:
     """股票分析器"""
@@ -171,13 +197,13 @@ class StockAnalyzer:
                 except Exception as e:
                     print(f"Error analyzing {symbol} with strategy {strategy.name}: {str(e)}")
                     continue
-
         return results
 
-def apply_strategies(market: str) -> Dict[str, List[Dict[str, Any]]]:
+def apply_strategies(market: str, strategy: str) -> Dict[str, List[Dict[str, Any]]]:
     """应用策略查找股票"""
     analyzer = StockAnalyzer(market)
-    analyzer.add_strategy(GoldenLineDoubleGreenWin())
+    strategy_class = globals()[strategy]()
+    analyzer.add_strategy(strategy_class)
     return analyzer.analyze()
 
 def main():

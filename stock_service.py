@@ -143,13 +143,14 @@ def apply_strategies():
     try:
         # 获取请求参数
         market = request.args.get('market', 'cn')
+        strategy = request.args.get('strategy', 'NotExists')
         
         # 参数验证
         if market.lower() not in ['us', 'cn']:
             return jsonify({'error': 'Invalid market parameter'}), 400
         
         # 调用服务
-        results = stock_strategy.apply_strategies(market)
+        results = stock_strategy.apply_strategies(market, strategy)
         
         # 统计每个策略的结果数量
         summary = {

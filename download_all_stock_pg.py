@@ -484,22 +484,15 @@ async def process_china_stock(symbol_info, engine):
                 
                 if start_date < datetime.now().date():
                     with ThreadPoolExecutor() as pool:
-                        stock_code_suf = symbol
-                        if symbol >= '800000':
-                            stock_code_suf = str(symbol).zfill(6) + '.BJ'
-                        elif symbol > '600000':
-                            stock_code_suf = str(symbol).zfill(6) + '.SH'
-                        else:
-                            stock_code_suf = str(symbol).zfill(6) + '.SZ'
-
                         loop = asyncio.get_event_loop()
                         hist = await loop.run_in_executor(
                             pool,
-                            lambda: ts.pro_api().daily(ts_code=stock_code_suf, 
+                            lambda: ts.pro_api().daily(ts_code=symbol+'.'+exchange, 
                                     start_date=START_DATE, 
                                     end_date=datetime.now().strftime("%Y%m%d"))
                         )
-                        
+                        # df = ts.pro_api().daily(ts_code='000001.SZ,600000.SH', start_date='20180701', end_date='20180718')
+
                         if not hist.empty:
                             # 转换列名以匹配英文格式
                             hist = hist.rename(columns={
