@@ -131,12 +131,11 @@ class HighVolumeBreakStrategy(Strategy):
         volume_rise_day = self._find_high_volume_rise(data)
         if volume_rise_day is None:
             return False
-            
         # 检查当前价格是否跌破支撑位
         current_day = data.iloc[-1]
         if not self._check_price_break(data, volume_rise_day):
             return False
-            
+        print(f"Price break: {self._check_price_break(data, volume_rise_day)}, high volume rise day: {volume_rise_day['date']} for {data.iloc[-1]['symbol']}")
         # # 检查成交量形态
         # volume_rise_idx = data.index.get_loc(volume_rise_day.name)
         # if not self._check_volume_pattern(data, volume_rise_idx):

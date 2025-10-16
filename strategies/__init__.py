@@ -14,6 +14,12 @@ AVAILABLE_STRATEGIES = {
     'HighVolumeBreak': HighVolumeBreakStrategy,
 }
 
+DAYS_MAP = {
+    'GoldenLineDoubleGreenWin': 3,
+    'GoldenLineDoubleGreenWinWithConfirmation': 3,
+    'HighVolumeBreak': 100,
+}
+
 __all__ = [
     'Strategy',
     'StockData',

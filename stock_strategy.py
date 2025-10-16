@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 # 导入配置和策略
 from config import config
-from strategies import AVAILABLE_STRATEGIES, Strategy
+from strategies import AVAILABLE_STRATEGIES, Strategy, DAYS_MAP
 
 def get_db_engine():
     """创建PostgreSQL数据库连接"""
@@ -49,18 +49,19 @@ class StockAnalyzer:
             print(f"Error getting stock data: {str(e)}")
             return pd.DataFrame()
 
-    def analyze(self, min_days: int = 2) -> Dict[str, List[Dict[str, Any]]]:
+    def analyze(self, days: int = 3) -> Dict[str, List[Dict[str, Any]]]:
         """分析所有股票"""
         results = {strategy.name: [] for strategy in self.strategies}
-        
         # 获取股票数据
-        df = self.get_stock_data(days=min_days + 5)  # 多获取几天数据以确保有足够的历史数据
+        df = self.get_stock_data(days=days * 3 // 2 + 5)  # 多获取几天数据以确保有足够的历史数据
         if df.empty:
+            print(f"No stock data found for market: {self.market}")
             return results
 
         # 按股票代码分组分析
         for symbol, group in df.groupby('symbol'):
-            if len(group) < min_days:
+            if len(group) < 3:
+                print(f"Not enough data for symbol: {symbol}, min_days: 3")
                 continue
             
             # 获取最新数据
@@ -84,7 +85,7 @@ class StockAnalyzer:
                     continue
         return results
 
-def apply_strategies(market: str, strategy_name: str = None) -> Dict[str, List[Dict[str, Any]]]:
+def apply_strategies(market: str, strategy_name: str = None, days: int = 3) -> Dict[str, List[Dict[str, Any]]]:
     """应用策略查找股票"""
     analyzer = StockAnalyzer(market)
     
@@ -92,13 +93,14 @@ def apply_strategies(market: str, strategy_name: str = None) -> Dict[str, List[D
         if strategy_name not in AVAILABLE_STRATEGIES:
             raise ValueError(f"Strategy {strategy_name} not found. Available strategies: {list(AVAILABLE_STRATEGIES.keys())}")
         strategy_class = AVAILABLE_STRATEGIES[strategy_name]
+        days = DAYS_MAP[strategy_name]
         analyzer.add_strategy(strategy_class())
     else:
         # 如果没有指定策略，使用所有可用策略
         for strategy_class in AVAILABLE_STRATEGIES.values():
             analyzer.add_strategy(strategy_class())
     
-    return analyzer.analyze()
+    return analyzer.analyze(days)
 
 def main():
     # 创建分析器
