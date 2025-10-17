@@ -71,6 +71,24 @@ def initialize_database():
     engine = get_db_engine()
     
     with engine.begin() as conn:
+        # Create task status table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS task_status (
+                id SERIAL PRIMARY KEY,
+                task_type VARCHAR(50),
+                market VARCHAR(10),
+                status VARCHAR(20),
+                start_time TIMESTAMP,
+                end_time TIMESTAMP,
+                last_update_time TIMESTAMP,
+                total_symbols INT,
+                processed_symbols INT,
+                failed_symbols INT,
+                error_message TEXT
+            )
+        """))
+        print("Created task_status table")
+        
         # Create stock info tables
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS us_stocks_info (
@@ -688,28 +706,6 @@ async def download_us_stocks_async():
                 stats.add_failure(batch_symbols, str(e))
                 print(f"Batch failed: {str(e)}")
         
-        # Second pass: Retry failed symbols with smaller batch size
-        if stats.failed:
-            print("\nRetrying failed symbols with smaller batch size...")
-            retry_batch_size = 10
-            failed_symbols = list(stats.failed)
-            failed_symbol_infos = [s for s in symbols if s['symbol'] in failed_symbols]
-            
-            with tqdm(total=len(failed_symbols), desc="Retrying failed symbols") as retry_pbar:
-                for i in range(0, len(failed_symbol_infos), retry_batch_size):
-                    retry_batch = failed_symbol_infos[i:i + retry_batch_size]
-                    try:
-                        success_count = await process_us_stocks_batch(retry_batch, engine)
-                        stats.add_success(success_count)
-                        # Remove successful symbols from failed set
-                        for symbol_info in retry_batch[:success_count]:
-                            stats.failed.remove(symbol_info['symbol'])
-                        retry_pbar.update(len(retry_batch))
-                        
-                        await asyncio.sleep(2)  # Longer delay for retries
-                    except Exception as e:
-                        retry_symbols = [s['symbol'] for s in retry_batch]
-                        stats.add_failure(retry_symbols, f"Retry failed: {str(e)}")
         
         # Print final statistics
         stats.print_summary()

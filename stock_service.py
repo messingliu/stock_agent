@@ -16,8 +16,9 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)  # 启用CORS支持
 
-# 导入配置
+# 导入配置和任务管理器
 from config import config
+from task_manager import task_manager
 
 def get_db_engine():
     """创建PostgreSQL数据库连接"""
@@ -26,8 +27,7 @@ def get_db_engine():
 class StockService:
     def __init__(self):
         self.engine = get_db_engine()
-        self.strategies = [
-        ]
+        self.strategies = []
 
     def find_stocks_by_price(
         self,
@@ -144,6 +144,7 @@ def apply_strategies():
         market = request.args.get('market', 'cn')
         strategy = request.args.get('strategy', 'NotExists')
         days = int(request.args.get('days', 3))
+        
         # 参数验证
         if market.lower() not in ['us', 'cn']:
             return jsonify({'error': 'Invalid market parameter'}), 400
@@ -161,6 +162,46 @@ def apply_strategies():
             'market': market,
             'summary': summary,
             'results': results
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tasks/download', methods=['POST'])
+def start_download_task():
+    """启动数据下载任务"""
+    try:
+        # 获取请求参数
+        market = request.json.get('market', 'cn')
+        force = request.json.get('force', False)
+        
+        # 参数验证
+        if market.lower() not in ['us', 'cn']:
+            return jsonify({'error': 'Invalid market parameter'}), 400
+        
+        # 启动任务
+        result = task_manager.start_download_task(market)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tasks/status', methods=['GET'])
+def get_task_status():
+    """获取任务状态"""
+    try:
+        # 获取请求参数
+        task_id = request.args.get('task_id', type=int)
+        market = request.args.get('market')
+        
+        # 获取状态
+        status = task_manager.get_task_status(task_id, market)
+        
+        return jsonify({
+            'task_id': task_id,
+            'market': market,
+            'status': status
         })
         
     except Exception as e:
@@ -227,23 +268,18 @@ def main():
     """启动Web服务"""
     web_config = config.get('web_service')
     
-    # 如果启用SSL，创建SSL上下文
-    ssl_context = create_ssl_context() if web_config['ssl']['enabled'] else None
-    
     print(f"Starting Stock Service...")
-    protocol = "https" if web_config['ssl']['enabled'] else "http"
-    print(f"Server will be available at: {protocol}://{web_config['host']}:{web_config['port']}")
+    print(f"Server will be available at: http://{web_config['host']}:{web_config['port']}")
     print("Press Ctrl+C to stop the server")
     
     # Use Flask's development server with optimized settings
     app.run(
         host=web_config['host'],
         port=web_config['port'],
-        ssl_context=ssl_context,
-        debug=False,  # Disable debug mode for better performance
+        ssl_context=None,  # 禁用SSL以便于测试
+        debug=True,  # 启用调试模式以查看错误
         threaded=True,  # Enable threading for concurrent requests
-        use_reloader=False,  # Disable auto-reloader to avoid conflicts
-        processes=1  # Single process to avoid SSL context issues
+        use_reloader=False  # Disable auto-reloader to avoid conflicts
     )
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ AVAILABLE_STRATEGIES = {
 DAYS_MAP = {
     'GoldenLineDoubleGreenWin': 3,
     'GoldenLineDoubleGreenWinWithConfirmation': 3,
-    'HighVolumeBreak': 100,
+    'HighVolumeBreak': 30,
 }
 
 __all__ = [
