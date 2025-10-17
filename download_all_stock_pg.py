@@ -316,7 +316,8 @@ async def download_stocks_async(market: str, task_id: Optional[int] = None):
     task_dao = TaskDAO()
     is_china = market.lower() == 'cn'
     market_upper = market.upper()
-    
+    if not task_id:
+        task_id = task_dao.create_task(market, 'download')
     # 获取股票列表
     if backfill:
         symbols = get_all_stock_symbols_from_file(market)
