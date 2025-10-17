@@ -698,9 +698,6 @@ async def download_us_stocks_async():
                 stats.add_success(success_count)
                 pbar.update(len(batch))
                 
-                # Add a small delay between batches
-                if i + BATCH_SIZE < total_symbols:
-                    await asyncio.sleep(1)
             except Exception as e:
                 batch_symbols = [s['symbol'] for s in batch]
                 stats.add_failure(batch_symbols, str(e))

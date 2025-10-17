@@ -28,34 +28,39 @@ class HighVolumeBreakStrategy(Strategy):
             return None
             
         # 计算前期数据（不包括最近5天）
-        historical_data = data.iloc[:-5]
-        
-        for idx in range(len(historical_data)-5, -1, -1):
+        historical_data = data.iloc[:]
+        max_vol = 0
+        max_day = None
+        for idx in range(len(historical_data)-2, -1, -1):
             day = historical_data.iloc[idx]
+            prev = historical_data.iloc[idx-1]
             prev_5_days = historical_data.iloc[idx-5:idx]
             
             # 检查是否是阳线
-            if day['close'] <= day['open']:
+            if day['close'] <= prev['close']:
                 continue
                 
+            if day['volume'] < max_vol:
+                continue
+
             # 检查成交量
             avg_volume = prev_5_days['volume'].mean()
-            if day['volume'] < avg_volume * 2:
+            if day['volume'] < avg_volume * 1.5:
                 continue
                 
             # 检查涨幅
-            change_percent = (day['close'] - day['open']) / day['open'] * 100
+            change_percent = (day['close'] - prev['close']) / prev['open'] * 100
             if change_percent < 2:
                 continue
                 
-            # 检查实体大小
-            body = calc_body(day)
-            if body / day['open'] * 100 < 1:
-                continue
-                
-            return day
-            
-        return None
+            # # 检查实体大小
+            # body = calc_body(day)
+            # if body / day['open'] * 100 < 1:
+            #     continue
+            max_vol = day['volume']
+            max_day = day
+        return max_day
+ 
 
     def _check_price_break(self, data: pd.DataFrame, volume_rise_day: pd.Series) -> bool:
         """
