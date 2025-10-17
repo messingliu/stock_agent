@@ -1,32 +1,30 @@
+"""股票服务Web API"""
+
 import os
 from datetime import datetime, timedelta
 import pandas as pd
-from sqlalchemy import create_engine, text
-from dotenv import load_dotenv
-from typing import List, Dict, Any, Optional
 from flask import Flask, request, jsonify
-import stock_strategy
 from flask_cors import CORS
 import ssl
+from cryptography import x509
+from cryptography.x509.oid import NameOID
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from typing import Dict, Any, Optional, List
 
-# 加载环境变量
-load_dotenv()
+import stock_strategy
+from config import config
+from dao import StockDAO, TaskDAO
+from task_manager import task_manager
 
 # 创建Flask应用
 app = Flask(__name__)
 CORS(app)  # 启用CORS支持
 
-# 导入配置和任务管理器
-from config import config
-from task_manager import task_manager
-
-def get_db_engine():
-    """创建PostgreSQL数据库连接"""
-    return create_engine(config.db_url)
-
 class StockService:
+    """股票服务类"""
     def __init__(self):
-        self.engine = get_db_engine()
+        """初始化服务"""
         self.strategies = []
 
     def find_stocks_by_price(
@@ -40,50 +38,31 @@ class StockService:
         """根据价格范围查找股票"""
         # 转换市场代码
         market_code = 'us' if market.lower() == 'us' else 'cn'
-        table_name = f"{market_code}_stock_prices"
+        stock_dao = StockDAO(market_code)
         
-        # 构建查询
-        query = f"""
-            WITH latest_prices AS (
-                SELECT DISTINCT ON (symbol) *
-                FROM {table_name}
-                WHERE date >= CURRENT_DATE - INTERVAL ':days days' AND {price_type} BETWEEN :price_low AND :price_high
-                ORDER BY symbol, date DESC
-            )
-            SELECT DISTINCT p.symbol,
-                   i.name,
-                   i.exchange,
-                   p.date,
-                   p.{price_type} as price
-            FROM latest_prices p
-            LEFT JOIN {market_code}_stocks_info i ON p.symbol = i.symbol
-            ORDER BY p.{price_type}
-        """
-        
-        try:
-            with self.engine.connect() as conn:
-                result = conn.execute(
-                    text(query),
-                    {
-                        'days': days,
-                        'price_low': price_low,
-                        'price_high': price_high
-                    }
-                )
-                
-                stocks = []
-                for row in result:
-                    stocks.append({
-                        'symbol': row.symbol,
-                        'name': row.name,
-                        'exchange': row.exchange,
-                        'date': row.date.strftime('%Y-%m-%d'),
-                        'price': float(row.price)
-                    })
-                return stocks
-        except Exception as e:
-            print(f"Error finding stocks by price: {str(e)}")
+        # 获取价格数据
+        df = stock_dao.get_stock_prices(days)
+        if df.empty:
             return []
+        
+        # 过滤价格范围
+        df = df[df[price_type].between(price_low, price_high)]
+        if df.empty:
+            return []
+        
+        # 获取最新数据
+        latest_prices = df.sort_values('date').groupby('symbol').last().reset_index()
+        
+        # 转换结果
+        stocks = []
+        for _, row in latest_prices.iterrows():
+            stocks.append({
+                'symbol': row['symbol'],
+                'date': row['date'].strftime('%Y-%m-%d'),
+                'price': float(row[price_type])
+            })
+        
+        return stocks
 
 # 创建服务实例
 stock_service = StockService()
@@ -142,7 +121,7 @@ def apply_strategies():
     try:
         # 获取请求参数
         market = request.args.get('market', 'cn')
-        strategy = request.args.get('strategy', 'NotExists')
+        strategy = request.args.get('strategy', None)
         days = int(request.args.get('days', 3))
         
         # 参数验证
@@ -180,8 +159,7 @@ def start_download_task():
             return jsonify({'error': 'Invalid market parameter'}), 400
         
         # 启动任务
-        result = task_manager.start_download_task(market)
-        
+        result = task_manager.start_download_task(market, force)
         return jsonify(result)
         
     except Exception as e:
@@ -196,13 +174,10 @@ def get_task_status():
         market = request.args.get('market')
         
         # 获取状态
-        status = task_manager.get_task_status(task_id, market)
+        task_dao = TaskDAO()
+        status = task_dao.get_task_status(task_id, market)
         
-        return jsonify({
-            'task_id': task_id,
-            'market': market,
-            'status': status
-        })
+        return jsonify(status)
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -212,20 +187,11 @@ def create_ssl_context():
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     
     # 生成自签名证书
-    from cryptography import x509
-    from cryptography.x509.oid import NameOID
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.hazmat.primitives import serialization
-    import datetime
-    
-    # 生成私钥
     private_key = rsa.generate_private_key(
         public_exponent=65537,
         key_size=2048
     )
     
-    # 生成证书
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.COMMON_NAME, u"localhost")
     ])
@@ -239,9 +205,9 @@ def create_ssl_context():
     ).serial_number(
         x509.random_serial_number()
     ).not_valid_before(
-        datetime.datetime.utcnow()
+        datetime.utcnow()
     ).not_valid_after(
-        datetime.datetime.utcnow() + datetime.timedelta(days=365)
+        datetime.utcnow() + timedelta(days=365)
     ).add_extension(
         x509.SubjectAlternativeName([x509.DNSName(u"localhost")]),
         critical=False,
