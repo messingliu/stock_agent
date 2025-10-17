@@ -268,18 +268,23 @@ def main():
     """启动Web服务"""
     web_config = config.get('web_service')
     
+    # 如果启用SSL，创建SSL上下文
+    ssl_context = create_ssl_context() if web_config['ssl']['enabled'] else None
+    
     print(f"Starting Stock Service...")
-    print(f"Server will be available at: http://{web_config['host']}:{web_config['port']}")
+    protocol = "https" if web_config['ssl']['enabled'] else "http"
+    print(f"Server will be available at: {protocol}://{web_config['host']}:{web_config['port']}")
     print("Press Ctrl+C to stop the server")
     
     # Use Flask's development server with optimized settings
     app.run(
         host=web_config['host'],
         port=web_config['port'],
-        ssl_context=None,  # 禁用SSL以便于测试
-        debug=True,  # 启用调试模式以查看错误
+        ssl_context=ssl_context,
+        debug=False,  # Disable debug mode for better performance
         threaded=True,  # Enable threading for concurrent requests
-        use_reloader=False  # Disable auto-reloader to avoid conflicts
+        use_reloader=False,  # Disable auto-reloader to avoid conflicts
+        processes=1  # Single process to avoid SSL context issues
     )
 
 if __name__ == "__main__":
