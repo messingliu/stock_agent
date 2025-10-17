@@ -1,21 +1,23 @@
-"""股票策略分析模块"""
-
+import os
 from datetime import datetime, timedelta
 import pandas as pd
+from sqlalchemy import create_engine, text
 from typing import List, Dict, Any
-from dao import StockDAO
+from dotenv import load_dotenv
+
+# 导入配置和策略
+from config import config
 from strategies import AVAILABLE_STRATEGIES, Strategy, DAYS_MAP
+
+def get_db_engine():
+    """创建PostgreSQL数据库连接"""
+    return create_engine(config.db_url)
 
 class StockAnalyzer:
     """股票分析器"""
     def __init__(self, market: str):
-        """初始化分析器
-        
-        Args:
-            market: 市场代码 ('us' 或 'cn')
-        """
+        self.engine = get_db_engine()
         self.market = market.lower()
-        self.dao = StockDAO(market)
         self.strategies: List[Strategy] = []
 
     def add_strategy(self, strategy: Strategy):
@@ -24,12 +26,32 @@ class StockAnalyzer:
 
     def get_stock_data(self, days: int = 10) -> pd.DataFrame:
         """获取指定天数的股票数据"""
-        return self.dao.get_stock_prices(days)
+        table_name = f"{self.market}_stock_prices"
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
+
+        query = f"""
+        SELECT *
+        FROM {table_name}
+        WHERE date >= :start_date
+        ORDER BY symbol, date
+        """
+
+        try:
+            with self.engine.connect() as conn:
+                df = pd.read_sql_query(
+                    text(query),
+                    conn,
+                    params={'start_date': start_date}
+                )
+            return df
+        except Exception as e:
+            print(f"Error getting stock data: {str(e)}")
+            return pd.DataFrame()
 
     def analyze(self, days: int = 3) -> Dict[str, List[Dict[str, Any]]]:
         """分析所有股票"""
         results = {strategy.name: [] for strategy in self.strategies}
-        
         # 获取股票数据
         df = self.get_stock_data(days=days * 3 // 2 + 5)  # 多获取几天数据以确保有足够的历史数据
         if df.empty:

@@ -29,7 +29,7 @@ class HighVolumeBreakStrategy(Strategy):
             
         # 计算前期数据（不包括最近5天）
         historical_data = data.iloc[:-5]
-        avg_volume = data['volume'].mean()
+        
         for idx in range(len(historical_data)-5, -1, -1):
             day = historical_data.iloc[idx]
             prev_5_days = historical_data.iloc[idx-5:idx]
