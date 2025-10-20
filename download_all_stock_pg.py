@@ -484,8 +484,9 @@ async def process_stocks_batch(symbol_infos, engine, market='us'):
                         # Calculate moving averages before resetting index
                         #symbol_data = calculate_moving_averages(symbol_data)
                         
-                        symbol_data['Date'] = pd.to_datetime(symbol_data['Date'])
-                        symbol_data.set_index('Date', inplace=True)
+                        if market == 'cn':
+                            symbol_data['Date'] = pd.to_datetime(symbol_data['Date'])
+                            symbol_data.set_index('Date', inplace=True)
                         
                         # 计算移动平均线
                         symbol_data = calculate_moving_averages(symbol_data)
