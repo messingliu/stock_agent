@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 import sys
 import tushare as ts
+from utils.download_util import DownloadStats
 
 # Enable nested asyncio for Jupyter compatibility
 nest_asyncio.apply()
@@ -45,6 +46,7 @@ china_stock = len(sys.argv) > 1 and sys.argv[1] == '--china'
 yahoo_semaphore = asyncio.Semaphore(YAHOO_CALLS_PER_SECOND)
 akshare_semaphore = asyncio.Semaphore(AKSHARE_CALLS_PER_SECOND)
 
+stats = DownloadStats()
 
 async def retry_with_backoff(func, *args, **kwargs):
     """Retry a function with exponential backoff."""
@@ -165,7 +167,7 @@ def get_stored_symbols_count(market='CN'):
         result = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
         return result.scalar()
 
-def update_stock_info(symbols, market='CN'):
+def update_stock_info(symbols, market='cn'):
     """更新股票信息到数据库"""
     engine = get_db_engine()
     table_name = f"{market.lower()}_stocks_info"
@@ -186,12 +188,12 @@ def update_stock_info(symbols, market='CN'):
                     'symbol': symbol_info['symbol'],
                     'name': symbol_info.get('name', symbol_info['symbol']),
                     'exchange': symbol_info['exchange'],
-                    'market': market,
+                    'market': market.upper(),
                     'update_time': datetime.now()
                 }
             )
 
-def get_symbols_from_db(market='CN'):
+def get_symbols_from_db(market='cn'):
     """从数据库获取股票信息"""
     engine = get_db_engine()
     table_name = f"{market.lower()}_stocks_info"
@@ -215,7 +217,7 @@ def get_symbols_from_db(market='CN'):
                     'symbol': row.symbol,
                     'name': row.name,
                     'exchange': row.exchange,
-                    'market': row.market
+                    'market': row.market.upper()
                 })
         print("symbols count: ", len(symbols))
         return symbols
@@ -249,10 +251,10 @@ def get_all_us_symbols(use_db=True):
                     continue
                 else:
                     print("Using stored data from database")
-                    symbols = get_symbols_from_db('US')
+                    symbols = get_symbols_from_db('us')
             else:
                 # 更新数据库
-                update_stock_info(symbols, 'US')
+                update_stock_info(symbols, 'us')
             
             return symbols
             
@@ -263,12 +265,12 @@ def get_all_us_symbols(use_db=True):
                 print(f"Retrying... (attempt {retry_count + 1}/{MAX_RETRY_COUNT})")
             else:
                 print("Using stored data from database")
-                return get_symbols_from_db('US')
+                return get_symbols_from_db('us')
             delay = RETRY_DELAY * (2 ** retry_count)  # Exponential backoff
             print(f"Attempt {retry_count + 1} failed with error: {str(e)}. Retrying in {delay} seconds...")
             time.sleep(delay)
 
-    return get_symbols_from_db('US')
+    return get_symbols_from_db('us')
 
 def get_all_china_symbols(use_db=True):
     """获取所有A股股票代码，带重试和回退机制"""
@@ -312,10 +314,10 @@ def get_all_china_symbols(use_db=True):
                     continue
                 else:
                     print("Using stored data from database")
-                    symbols = get_symbols_from_db('CN')
+                    symbols = get_symbols_from_db('cn')
             else:
                 # 更新数据库
-                update_stock_info(symbols, 'CN')
+                update_stock_info(symbols, 'cn')
             
             return symbols
             
@@ -326,14 +328,14 @@ def get_all_china_symbols(use_db=True):
                 print(f"Retrying... (attempt {retry_count + 1}/{MAX_RETRY_COUNT})")
             else:
                 print("Using stored data from database")
-                return get_symbols_from_db('CN')
+                return get_symbols_from_db('cn')
             delay = RETRY_DELAY * (2 ** retry_count)  # Exponential backoff
             print(f"Attempt {retry_count + 1} failed with error: {str(e)}. Retrying in {delay} seconds...")
             time.sleep(delay)
     
-    return get_symbols_from_db('CN')
+    return get_symbols_from_db('cn')
 
-async def get_stocks_history(symbols, start_date):
+async def get_us_stocks_history(symbols, start_date):
     """Download historical data for multiple stocks in one request"""
     with ThreadPoolExecutor() as pool:
         loop = asyncio.get_event_loop()
@@ -354,6 +356,48 @@ async def get_stocks_history(symbols, start_date):
             print(f"Error downloading data: {str(e)}")
             return {}
 
+async def get_china_stocks_history(symbol_infos, start_date):
+    with ThreadPoolExecutor() as pool:
+        loop = asyncio.get_event_loop()
+        try:
+            ts_code = ','.join([symbol_info['symbol']+'.'+symbol_info['exchange'] for symbol_info in symbol_infos])
+            print(f"Downloading data for {ts_code}")
+            hist = await loop.run_in_executor(
+                pool,
+                # lambda: ts.pro_api().daily(ts_code=symbol+'.'+exchange, 
+                #         start_date=START_DATE, 
+                #         end_date=datetime.now().strftime("%Y%m%d"))
+                lambda: ts.pro_api().daily(ts_code=ts_code, 
+                        start_date=START_DATE, 
+                        end_date=datetime.now().strftime("%Y%m%d"))
+            )
+            # df = ts.pro_api().daily(ts_code='000001.SZ,600000.SH', start_date='20180701', end_date='20180718')
+
+            if not hist.empty:
+                # 转换列名以匹配英文格式
+                hist['ts_code'] = hist['ts_code'].str.split('.').str[0]
+                hist = hist.rename(columns={
+                    'ts_code': 'Symbol',
+                    'trade_date': 'Date',
+                    'open': 'Open',
+                    'high': 'High',
+                    'low': 'Low',
+                    'close': 'Close',
+                    'vol': 'Volume'
+                })
+            return hist
+        except Exception as e:
+            print(f"Error downloading cn data: {str(e)}")
+            return pd.DataFrame()
+            # hist['Date'] = pd.to_datetime(hist['Date'])
+            # hist.set_index('Date', inplace=True)
+            
+            # # 计算移动平均线
+            # hist = calculate_moving_averages(hist)
+            # hist.reset_index(inplace=True)
+                        
+
+
 def calculate_moving_averages(df):
     """Calculate moving averages for a DataFrame using available data"""
     # Sort DataFrame by date
@@ -371,7 +415,7 @@ def calculate_moving_averages(df):
     
     try:
         # Calculate basic moving averages with minimum periods
-        ma_windows = [5, 10, 20, 60, 200]
+        ma_windows = [5, 10, 20, 60]
         available_periods = len(close_series)
         
         # Initialize all MA columns
@@ -403,45 +447,56 @@ def calculate_moving_averages(df):
     
     return df
 
-async def process_us_stocks_batch(symbol_infos, engine):
+async def process_stocks_batch(symbol_infos, engine, market='us'):
     """Process a batch of US stocks asynchronously"""
     try:
         symbols = [info['symbol'] for info in symbol_infos]
         default_start = datetime.strptime(START_DATE, '%Y-%m-%d').date()
         start_date = default_start
         successful_symbols = set()
-
+        table_name = f"{market.lower()}_stock_prices"
         if start_date < datetime.now().date():
             print(f"Downloading data for {len(symbols)} symbols: {symbols}")
-            hist_data = await get_stocks_history(symbols, start_date)
+            if market == 'us':
+                hist_data = await get_us_stocks_history(symbols, start_date)
+            else:
+                hist_data = await get_china_stocks_history(symbol_infos, start_date)
+            # hist_data = await get_stocks_history(symbols, start_date)
             
-            print(f"Successfully downloaded history data for {len(hist_data)} symbols")
-            if symbols and symbols[0] in hist_data:
-                print(f"Sample data for {symbols[0]}:")
-                print(hist_data[symbols[0]].head())
+            print(f"Successfully downloaded history data {len(hist_data)} ")
 
             with engine.begin() as conn:
                 for symbol in symbols:
                     try:
-                        if symbol not in hist_data:
-                            print(f"No data available for {symbol}")
-                            continue
-                        
-                        symbol_data = hist_data[symbol]
+                        if market == 'us':
+                            if symbol not in hist_data:
+                                print(f"No data available for {symbol}")
+                                continue
+                            
+                            symbol_data = hist_data[symbol]
+                        else:
+                            symbol_data = hist_data[hist_data['Symbol'] == symbol]
+
                         if symbol_data.empty:
                             print(f"Empty data for {symbol}")
                             continue
                         symbol_data = symbol_data[symbol_data['Close'].notna()].copy()  # Fix fragmentation warning
                         # Calculate moving averages before resetting index
-                        symbol_data = calculate_moving_averages(symbol_data)
+                        #symbol_data = calculate_moving_averages(symbol_data)
                         
+                        symbol_data['Date'] = pd.to_datetime(symbol_data['Date'])
+                        symbol_data.set_index('Date', inplace=True)
+                        
+                        # 计算移动平均线
+                        symbol_data = calculate_moving_averages(symbol_data)
+
                         symbol_data.reset_index(inplace=True)
                         print(f"Downloaded {len(symbol_data)} records for {symbol}")
                         
                         # Insert price data with moving averages
                         for _, row in symbol_data.iterrows():
-                            conn.execute(text("""
-                                INSERT INTO us_stock_prices (
+                            conn.execute(text(f"""
+                                INSERT INTO {table_name} (
                                     symbol, date, open, high, low, close, volume,
                                     ma5, ma10, ma20, ma60, ma200
                                 )
@@ -472,20 +527,19 @@ async def process_us_stocks_batch(symbol_infos, engine):
                                 'ma10': round(float(row['ma10']), 2) if pd.notna(row['ma10']) else None,
                                 'ma20': round(float(row['ma20']), 2) if pd.notna(row['ma20']) else None,
                                 'ma60': round(float(row['ma60']), 2) if pd.notna(row['ma60']) else None,
-                                'ma200': round(float(row['ma200']), 2) if pd.notna(row['ma200']) else None
+                                'ma200': None
                             })
                         successful_symbols.add(symbol)
                     except Exception as e:
                         print(f"Error processing symbol {symbol}: {str(e)}")
-                        save_stock_to_file(symbol, 'US', 'failed', str(e))
+                        save_stock_to_file(symbol, market, 'failed', str(e))
                         continue
-            
         return len(successful_symbols)
     except Exception as e:
         symbols_str = ', '.join(s['symbol'] for s in symbol_infos)
-        print(f"Error processing US stocks batch {symbols_str}: {str(e)}")
+        print(f"Error processing {market.upper()} stocks batch {symbols_str}: {str(e)}")
         for s in symbol_infos:
-            save_stock_to_file(s['symbol'], 'US', 'failed', str(e)) 
+            save_stock_to_file(s['symbol'], market, 'failed', str(e)) 
         raise  # Re-raise the exception for the retry mechanism
 
 async def process_china_stock(symbol_info, engine):
@@ -583,42 +637,6 @@ async def process_china_stock(symbol_info, engine):
     
     return len(successful_symbols)
 
-# The rest of the code (get_all_us_symbols, get_all_china_symbols, etc.) remains the same
-class DownloadStats:
-    def __init__(self):
-        self.total = 0
-        self.success = 0
-        self.failed = set()
-        self.failed_reasons = {}
-    
-    def add_success(self, count=1):
-        self.success += count
-    
-    def add_failure(self, symbols, reason):
-        if isinstance(symbols, str):
-            symbols = [symbols]
-        for symbol in symbols:
-            self.failed.add(symbol)
-            if reason not in self.failed_reasons:
-                self.failed_reasons[reason] = set()
-            self.failed_reasons[reason].add(symbol)
-    
-    def print_summary(self):
-        print("\nDownload Summary:")
-        print(f"Total symbols: {self.total}")
-        print(f"Successfully downloaded: {self.success}")
-        print(f"Failed downloads: {len(self.failed)}")
-        if self.total > 0:
-            print(f"Success rate: {(self.success / self.total * 100):.2f}%")
-        else:
-            print("No symbols downloaded")
-        
-        if self.failed:
-            print("\nFailed symbols by reason:")
-            for reason, symbols in self.failed_reasons.items():
-                print(f"\n{reason}:")
-                print(f"Count: {len(symbols)}")
-                print(f"Symbols: {sorted(list(symbols))}")
 
 def save_stock_to_file(symbol, market='CN', status='failed', reason=''):
     """Save stock to file with status (failed/pending)"""
@@ -676,25 +694,24 @@ def get_all_stock_symbols_from_file(market, status='failed'):
     
     return symbols
 
-async def download_us_stocks_async():
+async def download_stocks_async(market='us'):
     if backfill:
-        symbols = get_all_stock_symbols_from_file('us')
+        symbols = get_all_stock_symbols_from_file(market)
     elif force_download:
-        symbols = get_all_us_symbols(True)
+        symbols = get_all_us_symbols(True) if market == 'us' else get_all_china_symbols(True)
     else:
-        symbols = get_symbols_from_db('US')
+        symbols = get_symbols_from_db(market)
 
     engine = get_db_engine()
     total_symbols = len(symbols)
-    stats = DownloadStats()
     stats.total = total_symbols
     
-    with tqdm(total=total_symbols, desc="Downloading US stocks") as pbar:
+    with tqdm(total=total_symbols, desc=f"Downloading {market.upper()} stocks") as pbar:
         # First pass: Process all symbols in batches
         for i in range(0, total_symbols, BATCH_SIZE):
             batch = symbols[i:i + BATCH_SIZE]
             try:
-                success_count = await process_us_stocks_batch(batch, engine)
+                success_count = await process_stocks_batch(batch, engine, market)
                 stats.add_success(success_count)
                 pbar.update(len(batch))
                 
@@ -707,48 +724,48 @@ async def download_us_stocks_async():
         # Print final statistics
         stats.print_summary()
 
-async def download_china_stocks_async():
-    """Download China stock data asynchronously in batches"""
-    if backfill:
-        symbols = get_all_stock_symbols_from_file('cn')
-    elif force_download:
-        symbols = get_all_china_symbols(True)
-    else:
-        symbols = get_symbols_from_db('CN')
+# async def download_china_stocks_async():
+#     """Download China stock data asynchronously in batches"""
+#     if backfill:
+#         symbols = get_all_stock_symbols_from_file('cn')
+#     elif force_download:
+#         symbols = get_all_china_symbols(True)
+#     else:
+#         symbols = get_symbols_from_db('CN')
 
-    engine = get_db_engine()
-    total_symbols = len(symbols)
-    completed = 0
+#     engine = get_db_engine()
+#     total_symbols = len(symbols)
+#     completed = 0
     
-    with tqdm(total=total_symbols, desc="Downloading China stocks") as pbar:
-        # Process symbols in batches
-        for i in range(0, total_symbols, BATCH_SIZE_CN):
-            batch = symbols[i:i + BATCH_SIZE_CN]
-            tasks = []
-            for symbol_info in batch:
-                task = asyncio.create_task(process_china_stock(symbol_info, engine))
-                tasks.append(task)
+#     with tqdm(total=total_symbols, desc="Downloading China stocks") as pbar:
+#         # Process symbols in batches
+#         for i in range(0, total_symbols, BATCH_SIZE_CN):
+#             batch = symbols[i:i + BATCH_SIZE_CN]
+#             tasks = []
+#             for symbol_info in batch:
+#                 task = asyncio.create_task(process_china_stock(symbol_info, engine))
+#                 tasks.append(task)
             
-            # Wait for all tasks in this batch to complete
-            await asyncio.gather(*tasks)
-            completed += len(batch)
-            pbar.update(len(batch))
+#             # Wait for all tasks in this batch to complete
+#             await asyncio.gather(*tasks)
+#             completed += len(batch)
+#             pbar.update(len(batch))
             
-            # Add a small delay between batches
-            if i + BATCH_SIZE_CN < total_symbols:
-                await asyncio.sleep(1)
+#             # Add a small delay between batches
+#             if i + BATCH_SIZE_CN < total_symbols:
+#                 await asyncio.sleep(1)
 
 
 async def main_async():
     # Initialize database
     initialize_database()
     print(f"Initialized database")
-    
     if china_stock:
-        china_task = asyncio.create_task(download_china_stocks_async())
+        china_task = asyncio.create_task(download_stocks_async('cn'))
+        #china_task = asyncio.create_task(download_china_stocks_async())
         await asyncio.gather(china_task)
     else:
-        us_task = asyncio.create_task(download_us_stocks_async())
+        us_task = asyncio.create_task(download_stocks_async('us'))
         await asyncio.gather(us_task)
 
 def main():

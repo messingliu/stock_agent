@@ -111,7 +111,10 @@ class TaskManager:
             self._update_task(
                 task_id,
                 status='completed',
-                end_time=datetime.now()
+                end_time=datetime.now(),
+                failed_symbols=download_all_stock_pg.stats.failed,
+                success_symbols=download_all_stock_pg.stats.success,
+                total_symbols=download_all_stock_pg.stats.total
             )
 
         except Exception as e:
