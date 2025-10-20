@@ -702,14 +702,15 @@ async def download_stocks_async(market='us'):
     else:
         symbols = get_symbols_from_db(market)
 
+    batch_size = BATCH_SIZE if market == 'us' else BATCH_SIZE_CN
     engine = get_db_engine()
     total_symbols = len(symbols)
     stats.total = total_symbols
     
     with tqdm(total=total_symbols, desc=f"Downloading {market.upper()} stocks") as pbar:
         # First pass: Process all symbols in batches
-        for i in range(0, total_symbols, BATCH_SIZE):
-            batch = symbols[i:i + BATCH_SIZE]
+        for i in range(0, total_symbols, batch_size):
+            batch = symbols[i:i + batch_size]
             try:
                 success_count = await process_stocks_batch(batch, engine, market)
                 stats.add_success(success_count)
