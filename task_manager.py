@@ -113,7 +113,7 @@ class TaskManager:
                 status='completed',
                 end_time=datetime.now(),
                 failed_symbols=len(download_all_stock_pg.stats.failed),
-                success_symbols=download_all_stock_pg.stats.success,
+                processed_symbols=download_all_stock_pg.stats.success,
                 total_symbols=download_all_stock_pg.stats.total
             )
 
