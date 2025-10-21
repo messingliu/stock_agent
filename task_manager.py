@@ -85,12 +85,14 @@ class TaskManager:
 
         # 如果有正在运行的任务，检查是否超时
         if latest_task['status'] == 'running':
-            if datetime.now() - latest_task['last_update_time'] > timedelta(hours=1):
+            if datetime.now() - latest_task['last_update_time'] > timedelta(hours=4):
                 return True
+            print(f"Latest task is running, skipping: {latest_task['last_update_time']}")
             return False
 
-        # 如果最后一次更新是在24小时之内，不需要运行
-        if datetime.now() - latest_task['last_update_time'] < timedelta(hours=24):
+        # 如果最后一次更新是在12小时之内，不需要运行
+        if datetime.now() - latest_task['last_update_time'] < timedelta(hours=12):
+            print(f"Latest task is less than 12 hours old, skipping: {latest_task['last_update_time']}")
             return False
 
         return True
