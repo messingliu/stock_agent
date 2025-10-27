@@ -49,6 +49,22 @@ class StockAnalyzer:
             print(f"Error getting stock data: {str(e)}")
             return pd.DataFrame()
 
+    def get_stock_names(self) -> Dict[str, str]:
+        """获取股票名称信息"""
+        table_name = f"{self.market}_stocks_info"
+        query = f"""
+        SELECT symbol, name
+        FROM {table_name}
+        """
+        
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(text(query))
+                return {row.symbol: row.name for row in result}
+        except Exception as e:
+            print(f"Error getting stock names: {str(e)}")
+            return {}
+
     def analyze(self, days: int = 3) -> Dict[str, List[Dict[str, Any]]]:
         """分析所有股票"""
         results = {strategy.name: [] for strategy in self.strategies}
@@ -57,6 +73,9 @@ class StockAnalyzer:
         if df.empty:
             print(f"No stock data found for market: {self.market}")
             return results
+
+        # 获取股票名称信息
+        stock_names = self.get_stock_names()
 
         # 按股票代码分组分析
         for symbol, group in df.groupby('symbol'):
@@ -73,6 +92,7 @@ class StockAnalyzer:
                     if strategy.apply(group):
                         stock_info = {
                             'symbol': symbol,
+                            'name': stock_names.get(symbol, symbol),  # 如果找不到名称，使用代码作为名称
                             'date': latest_data['date'].strftime('%Y-%m-%d'),
                             'close': round(latest_data['close'], 2),
                             'change_percent': round((latest_data['close'] - latest_data['open']) / latest_data['open'] * 100, 2),
@@ -119,10 +139,10 @@ def main():
     for strategy_name, stocks in us_results.items():
         print(f"\n{strategy_name} 策略找到 {len(stocks)} 只股票:")
         if stocks:
-            print(f"{'代码':<8} {'日期':<12} {'收盘价':<8} {'涨跌幅':<8} {'成交量':<12} {'MA60':<8}")
-            print("-" * 60)
+            print(f"{'代码':<8} {'名称':<12} {'日期':<12} {'收盘价':<8} {'涨跌幅':<8} {'成交量':<12} {'MA60':<8}")
+            print("-" * 80)
             for stock in stocks:
-                print(f"{stock['symbol']:<8} {stock['date']:<12} {stock['close']:<8} {stock['change_percent']:>6.2f}% {stock['volume']:<12} {stock['ma60']:<8}")
+                print(f"{stock['symbol']:<8} {stock['name'][:10]:<12} {stock['date']:<12} {stock['close']:<8} {stock['change_percent']:>6.2f}% {stock['volume']:<12} {stock['ma60']:<8}")
 
     # 分析A股
     print("\n分析A股市场...")
@@ -130,10 +150,10 @@ def main():
     for strategy_name, stocks in cn_results.items():
         print(f"\n{strategy_name} 策略找到 {len(stocks)} 只股票:")
         if stocks:
-            print(f"{'代码':<8} {'日期':<12} {'收盘价':<8} {'涨跌幅':<8} {'成交量':<12} {'MA60':<8}")
-            print("-" * 60)
+            print(f"{'代码':<8} {'名称':<12} {'日期':<12} {'收盘价':<8} {'涨跌幅':<8} {'成交量':<12} {'MA60':<8}")
+            print("-" * 80)
             for stock in stocks:
-                print(f"{stock['symbol']:<8} {stock['date']:<12} {stock['close']:<8} {stock['change_percent']:>6.2f}% {stock['volume']:<12} {stock['ma60']:<8}")
+                print(f"{stock['symbol']:<8} {stock['name'][:10]:<12} {stock['date']:<12} {stock['close']:<8} {stock['change_percent']:>6.2f}% {stock['volume']:<12} {stock['ma60']:<8}")
 
 if __name__ == "__main__":
     main()
