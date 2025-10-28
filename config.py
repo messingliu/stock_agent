@@ -61,6 +61,9 @@ class Config:
                     'us': 100,
                     'cn': 5
                 },
+                'analysis_batch': {
+                    'max_symbols_per_batch': 50
+                },
                 'date_range': {
                     'start_date': '2020-01-01',
                     'end_date': 'now'
@@ -151,6 +154,11 @@ class Config:
     def date_range(self) -> Dict[str, str]:
         """获取日期范围"""
         return self._config['download']['date_range']
+    
+    @property
+    def analysis_batch_config(self) -> Dict[str, Any]:
+        """获取分析批处理配置"""
+        return self._config['download']['analysis_batch']
 
 # 创建全局配置实例
 config = Config()
