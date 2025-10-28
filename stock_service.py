@@ -165,7 +165,7 @@ def apply_strategies():
         # 获取请求参数
         market = request.args.get('market', 'cn')
         strategy = request.args.get('strategy', 'NotExists')
-        days = int(request.args.get('days', 3))
+        days = int(request.args.get('days', stock_strategy.DAYS_MAP.get(strategy, 3)))
         
         # 参数验证
         if market.lower() not in ['us', 'cn']:
