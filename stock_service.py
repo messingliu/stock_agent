@@ -166,7 +166,7 @@ def apply_strategies():
         market = request.args.get('market', 'cn')
         strategy = request.args.get('strategy', 'NotExists')
         days = int(request.args.get('days', stock_strategy.DAYS_MAP.get(strategy, 3)))
-        
+        print(f"strategy: {strategy}, days: {days}")
         # 参数验证
         if market.lower() not in ['us', 'cn']:
             return jsonify({'error': 'Invalid market parameter'}), 400
