@@ -1,6 +1,6 @@
 from .base import Strategy
 from .utils.indicators import (
-    is_green, is_red, cross_ma, volume_increase,
+    is_down, is_up, cross_ma, volume_increase,
     calc_body, get_change_percent
 )
 import pandas as pd
@@ -11,7 +11,7 @@ def calc_goldenline_double_green_win(today: pd.Series, yesterday: pd.Series) -> 
     """
     try:
         # 规则1：今天收阳，昨天收阴
-        rule1 = is_green(today) and is_red(yesterday)
+        rule1 = is_up(today) and is_down(yesterday)
 
         # 规则2：今天实体大于昨天实体
         today_body = calc_body(today)

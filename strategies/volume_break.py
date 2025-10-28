@@ -1,6 +1,6 @@
 from .base import Strategy
 from .utils.indicators import (
-    is_green, volume_increase, get_change_percent,
+    volume_increase, get_change_percent,
     get_support_resistance, calc_body
 )
 import pandas as pd

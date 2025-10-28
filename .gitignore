@@ -5,3 +5,4 @@ cert.pem
 __pycache__
 stock_lists
 config.yaml
+.cursor

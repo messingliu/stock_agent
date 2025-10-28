@@ -136,6 +136,28 @@ def find_stocks_by_price():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/strategies', methods=['GET'])
+def get_available_strategies():
+    """获取所有可用的策略信息"""
+    try:
+        strategies = {}
+        for name, strategy_class in stock_strategy.AVAILABLE_STRATEGIES.items():
+            # 创建策略实例以获取描述
+            strategy = strategy_class()
+            strategies[name] = {
+                'name': name,
+                'description': strategy.description,
+                'required_days': stock_strategy.DAYS_MAP.get(name, 3)
+            }
+        
+        return jsonify({
+            'status': 'success',
+            'strategies': strategies
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/stocks/strategies', methods=['GET'])
 def apply_strategies():
     """应用策略查找股票的API"""

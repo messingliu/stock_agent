@@ -5,11 +5,11 @@ def calc_body(data: pd.Series) -> float:
     """计算K线实体"""
     return abs(data['close'] - data['open'])
 
-def is_green(data: pd.Series) -> bool:
+def is_up(data: pd.Series) -> bool:
     """判断是否为阳线"""
     return data['close'] > data['open']
 
-def is_red(data: pd.Series) -> bool:
+def is_down(data: pd.Series) -> bool:
     """判断是否为阴线"""
     return data['close'] < data['open']
 
