@@ -37,27 +37,45 @@ class StockService:
         price_low: float,
         price_high: float
     ) -> List[Dict[str, Any]]:
-        """根据价格范围查找股票"""
+        """根据价格范围查找股票
+        对于price_type=high: 查找在指定天数内最高价在范围内的股票
+        对于price_type=low: 查找在指定天数内最低价在范围内的股票
+        """
         # 转换市场代码
         market_code = 'us' if market.lower() == 'us' else 'cn'
         table_name = f"{market_code}_stock_prices"
         
-        # 构建查询
+        # 根据price_type选择聚合函数
+        if price_type.lower() == 'high':
+            # 查找最高价在范围内的股票
+            agg_func = 'MAX(high)'
+            price_col = 'max_high'
+        elif price_type.lower() == 'low':
+            # 查找最低价在范围内的股票
+            agg_func = 'MIN(low)'
+            price_col = 'min_low'
+        else:
+            raise ValueError(f"price_type must be 'high' or 'low', got '{price_type}'")
+        
+        # 构建查询：先按symbol聚合，找到每个股票在指定天数内的最高/最低价
+        # 使用字符串格式化来构建表名和聚合函数（已通过验证，安全）
+        # 对于INTERVAL，使用make_interval函数以确保正确的参数绑定
         query = f"""
-            WITH latest_prices AS (
-                SELECT DISTINCT ON (symbol) *
+            WITH period_prices AS (
+                SELECT symbol,
+                       {agg_func} as {price_col}
                 FROM {table_name}
-                WHERE date >= CURRENT_DATE - INTERVAL ':days days' AND {price_type} BETWEEN :price_low AND :price_high
-                ORDER BY symbol, date DESC
+                WHERE date >= CURRENT_DATE - make_interval(days => :days)
+                GROUP BY symbol
+                HAVING {agg_func} BETWEEN :price_low AND :price_high
             )
-            SELECT DISTINCT p.symbol,
+            SELECT p.symbol,
                    i.name,
                    i.exchange,
-                   p.date,
-                   p.{price_type} as price
-            FROM latest_prices p
+                   p.{price_col} as price
+            FROM period_prices p
             LEFT JOIN {market_code}_stocks_info i ON p.symbol = i.symbol
-            ORDER BY p.{price_type}
+            ORDER BY p.{price_col}
         """
         
         try:
@@ -77,7 +95,6 @@ class StockService:
                         'symbol': row.symbol,
                         'name': row.name,
                         'exchange': row.exchange,
-                        'date': row.date.strftime('%Y-%m-%d'),
                         'price': float(row.price)
                     })
                 return stocks
@@ -90,12 +107,15 @@ stock_service = StockService()
 
 @app.route('/api/stocks/price', methods=['GET'])
 def find_stocks_by_price():
-    """根据价格范围查找股票的API"""
+    """根据价格范围查找股票的API
+    price_type='high': 查找在指定天数内最高价在范围内的股票
+    price_type='low': 查找在指定天数内最低价在范围内的股票
+    """
     try:
         # 获取请求参数
         market = request.args.get('market', 'cn')
         days = int(request.args.get('days', 1))
-        price_type = request.args.get('price_type', 'close')
+        price_type = request.args.get('price_type', 'high')
         price_low = float(request.args.get('price_low', 0))
         price_high = float(request.args.get('price_high', float('inf')))
         
@@ -103,8 +123,8 @@ def find_stocks_by_price():
         if market.lower() not in ['us', 'cn']:
             return jsonify({'error': 'Invalid market parameter'}), 400
             
-        if price_type.lower() not in ['low', 'high', 'close']:
-            return jsonify({'error': 'Invalid price_type parameter'}), 400
+        if price_type.lower() not in ['low', 'high']:
+            return jsonify({'error': "Invalid price_type parameter. Must be 'high' or 'low'"}), 400
             
         if days < 1:
             return jsonify({'error': 'Days must be positive'}), 400
