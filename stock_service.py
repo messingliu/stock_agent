@@ -314,7 +314,24 @@ def create_ssl_context():
                 encryption_algorithm=serialization.NoEncryption()
             ))
     
-    context.load_cert_chain(cert_path, key_path)
+    # 验证证书文件存在且可读
+    if not os.path.exists(cert_path):
+        raise FileNotFoundError(f"SSL certificate file not found: {cert_path}")
+    if not os.path.exists(key_path):
+        raise FileNotFoundError(f"SSL key file not found: {key_path}")
+    
+    if not os.access(cert_path, os.R_OK):
+        raise PermissionError(f"Cannot read SSL certificate file: {cert_path}")
+    if not os.access(key_path, os.R_OK):
+        raise PermissionError(f"Cannot read SSL key file: {key_path}")
+    
+    try:
+        context.load_cert_chain(cert_path, key_path)
+        print(f"SSL context loaded successfully from {cert_path} and {key_path}")
+    except Exception as e:
+        print(f"Error loading SSL certificate: {e}")
+        raise
+    
     return context
 
 def main():
