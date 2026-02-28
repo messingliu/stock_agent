@@ -249,6 +249,20 @@ def get_task_status():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def get_server_ip():
+    """获取服务器的IP地址"""
+    import socket
+    try:
+        # 连接到外部地址来获取本机IP
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        # 如果失败，返回localhost
+        return "127.0.0.1"
+
 def create_ssl_context():
     """创建SSL上下文"""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -274,6 +288,11 @@ def create_ssl_context():
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.hazmat.primitives import serialization
         import datetime
+        import ipaddress
+        
+        # 获取服务器IP地址
+        server_ip = get_server_ip()
+        print(f"[SSL] Detected server IP: {server_ip}")
         
         # 生成私钥
         private_key = rsa.generate_private_key(
@@ -285,6 +304,20 @@ def create_ssl_context():
         subject = issuer = x509.Name([
             x509.NameAttribute(NameOID.COMMON_NAME, u"localhost")
         ])
+        
+        # 创建Subject Alternative Name，包含localhost和IP地址
+        san_list = [
+            x509.DNSName(u"localhost"),
+            x509.DNSName(u"127.0.0.1"),
+        ]
+        
+        # 添加服务器IP地址
+        try:
+            ip_obj = ipaddress.ip_address(server_ip)
+            san_list.append(x509.IPAddress(ip_obj))
+            print(f"[SSL] Adding IP address {server_ip} to certificate")
+        except Exception as e:
+            print(f"[SSL] Warning: Could not add IP address to certificate: {e}")
         
         cert = x509.CertificateBuilder().subject_name(
             subject
@@ -299,7 +332,7 @@ def create_ssl_context():
         ).not_valid_after(
             datetime.datetime.utcnow() + datetime.timedelta(days=365)
         ).add_extension(
-            x509.SubjectAlternativeName([x509.DNSName(u"localhost")]),
+            x509.SubjectAlternativeName(san_list),
             critical=False,
         ).sign(private_key, hashes.SHA256())
         

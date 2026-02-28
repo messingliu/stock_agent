@@ -57,6 +57,7 @@ class Config:
                     'max_retries': 3,
                     'base_delay': 5
                 },
+                'akshare_timeout': 45,
                 'batch_size': {
                     'us': 100,
                     'cn': 5
@@ -149,6 +150,11 @@ class Config:
     def retry_config(self) -> Dict[str, int]:
         """获取重试配置"""
         return self._config['download']['retry']
+
+    @property
+    def akshare_timeout(self) -> int:
+        """东方财富(akshare)请求超时秒数"""
+        return self._config['download'].get('akshare_timeout', 45)
 
     @property
     def date_range(self) -> Dict[str, str]:

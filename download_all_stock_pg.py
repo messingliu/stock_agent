@@ -274,66 +274,76 @@ def get_all_us_symbols(use_db=True):
 
 def get_all_china_symbols(use_db=True):
     """获取所有A股股票代码，带重试和回退机制"""
+    import akshare.utils.func as ak_func
+    timeout_sec = config.akshare_timeout
+    orig_fetch = ak_func.fetch_paginated_data
+    ak_func.fetch_paginated_data = lambda url, base_params, timeout=15: orig_fetch(url, base_params, timeout=timeout_sec)
+
     retry_count = 0
     stored_count = get_stored_symbols_count('CN') if use_db else 0
-    
-    while retry_count < MAX_RETRY_COUNT:
-        try:
-            symbols = []
-            
-            # 获取上海证券交易所股票
-            sh_stocks = ak.stock_sh_a_spot_em()
-            symbols.extend([{
-                'symbol': row['代码'],
-                'name': row['名称'],
-                'exchange': 'SH'
-            } for _, row in sh_stocks.iterrows()])
-            
-            # 获取深圳证券交易所股票
-            sz_stocks = ak.stock_sz_a_spot_em()
-            symbols.extend([{
-                'symbol': row['代码'],
-                'name': row['名称'],
-                'exchange': 'SZ'
-            } for _, row in sz_stocks.iterrows()])
-            
-            # 获取北京证券交易所股票
-            bj_stocks = ak.stock_bj_a_spot_em()
-            symbols.extend([{
-                'symbol': row['代码'],
-                'name': row['名称'],
-                'exchange': 'BJ'
-            } for _, row in bj_stocks.iterrows()])
-            
-            # 检查数据质量
-            if stored_count > 0 and len(symbols) < stored_count * FALLBACK_THRESHOLD:
-                print(f"Warning: Only got {len(symbols)} symbols, which is less than {FALLBACK_THRESHOLD*100}% of stored {stored_count} symbols")
-                if retry_count < MAX_RETRY_COUNT - 1:
-                    retry_count += 1
+
+    try:
+        while retry_count < MAX_RETRY_COUNT:
+            try:
+                symbols = []
+
+                # 获取上海证券交易所股票（使用更长超时，避免 East Money 读超时）
+                sh_stocks = ak.stock_sh_a_spot_em()
+                symbols.extend([{
+                    'symbol': row['代码'],
+                    'name': row['名称'],
+                    'exchange': 'SH'
+                } for _, row in sh_stocks.iterrows()])
+                time.sleep(2)  # 间隔请求，减轻东方财富限流/超时
+
+                # 获取深圳证券交易所股票
+                sz_stocks = ak.stock_sz_a_spot_em()
+                symbols.extend([{
+                    'symbol': row['代码'],
+                    'name': row['名称'],
+                    'exchange': 'SZ'
+                } for _, row in sz_stocks.iterrows()])
+                time.sleep(2)
+
+                # 获取北京证券交易所股票
+                bj_stocks = ak.stock_bj_a_spot_em()
+                symbols.extend([{
+                    'symbol': row['代码'],
+                    'name': row['名称'],
+                    'exchange': 'BJ'
+                } for _, row in bj_stocks.iterrows()])
+
+                # 检查数据质量
+                if stored_count > 0 and len(symbols) < stored_count * FALLBACK_THRESHOLD:
+                    print(f"Warning: Only got {len(symbols)} symbols, which is less than {FALLBACK_THRESHOLD*100}% of stored {stored_count} symbols")
+                    if retry_count < MAX_RETRY_COUNT - 1:
+                        retry_count += 1
+                        print(f"Retrying... (attempt {retry_count + 1}/{MAX_RETRY_COUNT})")
+                        continue
+                    else:
+                        print("Using stored data from database")
+                        symbols = get_symbols_from_db('cn')
+                else:
+                    # 更新数据库
+                    update_stock_info(symbols, 'cn')
+
+                return symbols
+
+            except Exception as e:
+                print(f"Error getting China symbols: {str(e)}")
+                retry_count += 1
+                if retry_count < MAX_RETRY_COUNT:
                     print(f"Retrying... (attempt {retry_count + 1}/{MAX_RETRY_COUNT})")
-                    continue
                 else:
                     print("Using stored data from database")
-                    symbols = get_symbols_from_db('cn')
-            else:
-                # 更新数据库
-                update_stock_info(symbols, 'cn')
-            
-            return symbols
-            
-        except Exception as e:
-            print(f"Error getting China symbols: {str(e)}")
-            retry_count += 1
-            if retry_count < MAX_RETRY_COUNT:
-                print(f"Retrying... (attempt {retry_count + 1}/{MAX_RETRY_COUNT})")
-            else:
-                print("Using stored data from database")
-                return get_symbols_from_db('cn')
-            delay = RETRY_DELAY * (2 ** retry_count)  # Exponential backoff
-            print(f"Attempt {retry_count + 1} failed with error: {str(e)}. Retrying in {delay} seconds...")
-            time.sleep(delay)
-    
-    return get_symbols_from_db('cn')
+                    return get_symbols_from_db('cn')
+                delay = RETRY_DELAY * (2 ** retry_count)  # Exponential backoff
+                print(f"Attempt {retry_count + 1} failed with error: {str(e)}. Retrying in {delay} seconds...")
+                time.sleep(delay)
+
+        return get_symbols_from_db('cn')
+    finally:
+        ak_func.fetch_paginated_data = orig_fetch
 
 async def get_us_stocks_history(symbols, start_date):
     """Download historical data for multiple stocks in one request"""
