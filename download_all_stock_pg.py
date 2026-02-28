@@ -288,31 +288,38 @@ def get_all_china_symbols(use_db=True):
                 symbols = []
 
                 # 获取上海证券交易所股票（使用更长超时，避免 East Money 读超时）
-                sh_stocks = ak.stock_sh_a_spot_em()
-                symbols.extend([{
-                    'symbol': row['代码'],
-                    'name': row['名称'],
-                    'exchange': 'SH'
-                } for _, row in sh_stocks.iterrows()])
-                time.sleep(2)  # 间隔请求，减轻东方财富限流/超时
+                # sh_stocks = ak.stock_sh_a_spot_em()
+                # symbols.extend([{
+                #     'symbol': row['代码'],
+                #     'name': row['名称'],
+                #     'exchange': 'SH'
+                # } for _, row in sh_stocks.iterrows()])
+                # time.sleep(2)  # 间隔请求，减轻东方财富限流/超时
 
-                # 获取深圳证券交易所股票
-                sz_stocks = ak.stock_sz_a_spot_em()
-                symbols.extend([{
-                    'symbol': row['代码'],
-                    'name': row['名称'],
-                    'exchange': 'SZ'
-                } for _, row in sz_stocks.iterrows()])
-                time.sleep(2)
+                # # 获取深圳证券交易所股票
+                # sz_stocks = ak.stock_sz_a_spot_em()
+                # symbols.extend([{
+                #     'symbol': row['代码'],
+                #     'name': row['名称'],
+                #     'exchange': 'SZ'
+                # } for _, row in sz_stocks.iterrows()])
+                # time.sleep(2)
 
-                # 获取北京证券交易所股票
-                bj_stocks = ak.stock_bj_a_spot_em()
-                symbols.extend([{
-                    'symbol': row['代码'],
-                    'name': row['名称'],
-                    'exchange': 'BJ'
-                } for _, row in bj_stocks.iterrows()])
+                # # 获取北京证券交易所股票
+                # bj_stocks = ak.stock_bj_a_spot_em()
+                # symbols.extend([{
+                #     'symbol': row['代码'],
+                #     'name': row['名称'],
+                #     'exchange': 'BJ'
+                # } for _, row in bj_stocks.iterrows()])
 
+                ts_stocks = ts.pro_api().stock_basic(exchange='', list_status='L',fields='ts_code,symbol,name,area,industry,list_date')
+                symbols.extend([{
+                    'symbol': row['symbol'],
+                    'name': row['name'],
+                    'exchange': row['ts_code'].split('.')[1]
+                } for _, row in ts_stocks.iterrows()])
+                
                 # 检查数据质量
                 if stored_count > 0 and len(symbols) < stored_count * FALLBACK_THRESHOLD:
                     print(f"Warning: Only got {len(symbols)} symbols, which is less than {FALLBACK_THRESHOLD*100}% of stored {stored_count} symbols")
