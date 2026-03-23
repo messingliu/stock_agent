@@ -1,7 +1,7 @@
 import os
 from datetime import datetime, timedelta
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional
 from flask import Flask, request, jsonify
@@ -17,12 +17,8 @@ app = Flask(__name__)
 CORS(app)  # 启用CORS支持
 
 # 导入配置和任务管理器
-from config import config
+from config import config, get_db_engine
 from task_manager import task_manager
-
-def get_db_engine():
-    """创建PostgreSQL数据库连接"""
-    return create_engine(config.db_url)
 
 class StockService:
     def __init__(self):

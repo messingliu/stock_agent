@@ -1,17 +1,13 @@
 import os
 from datetime import datetime, timedelta
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
 # 导入配置和策略
-from config import config
+from config import config, get_db_engine
 from strategies import AVAILABLE_STRATEGIES, Strategy, DAYS_MAP
-
-def get_db_engine():
-    """创建PostgreSQL数据库连接"""
-    return create_engine(config.db_url)
 
 def get_available_symbols(market: str, limit: int = None, offset: int = 0) -> List[str]:
     """获取可用的股票代码列表"""
@@ -38,7 +34,7 @@ def get_available_symbols(market: str, limit: int = None, offset: int = 0) -> Li
 class StockAnalyzer:
     """股票分析器"""
     def __init__(self, market: str):
-        self.engine = get_db_engine()
+        self.engine = get_db_engine()  # 使用全局共享 engine
         self.market = market.lower()
         self.strategies: List[Strategy] = []
 

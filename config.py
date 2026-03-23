@@ -2,6 +2,7 @@ import os
 import yaml
 from datetime import datetime
 from typing import Dict, Any
+from sqlalchemy import create_engine, event
 
 class Config:
     _instance = None
@@ -131,6 +132,26 @@ class Config:
         db = self._config['database']
         return f"postgresql://{db['user']}:{db['password']}@{db['host']}:{db['port']}/{db['name']}"
 
+    def get_engine(self):
+        """获取全局共享的 SQLAlchemy Engine（带连接池和自动重连）"""
+        if not hasattr(self, '_engine') or self._engine is None:
+            self._engine = create_engine(
+                self.db_url,
+                pool_size=5,
+                max_overflow=10,
+                pool_recycle=1800,       # 30分钟回收空闲连接，防止服务端断开
+                pool_pre_ping=True,      # 每次取连接前 ping 一下，自动丢弃死连接
+                pool_timeout=10,         # 等待连接的超时时间
+                connect_args={
+                    "connect_timeout": 5,            # TCP 连接超时 5 秒
+                    "keepalives": 1,                 # 启用 TCP keepalive
+                    "keepalives_idle": 30,            # 空闲 30 秒后发送 keepalive
+                    "keepalives_interval": 10,        # keepalive 探测间隔
+                    "keepalives_count": 5,            # 最多探测 5 次
+                },
+            )
+        return self._engine
+
     @property
     def tushare_token(self) -> str:
         """获取Tushare API token"""
@@ -168,3 +189,7 @@ class Config:
 
 # 创建全局配置实例
 config = Config()
+
+def get_db_engine():
+    """获取全局共享的数据库 Engine，所有模块统一使用此函数"""
+    return config.get_engine()

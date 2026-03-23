@@ -6,7 +6,7 @@ import time
 import asyncio
 import aiohttp
 import nest_asyncio
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -24,7 +24,7 @@ nest_asyncio.apply()
 load_dotenv()
 
 # 导入配置
-from config import config
+from config import config, get_db_engine
 
 # 设置Tushare token
 ts.set_token(config.tushare_token)
@@ -63,10 +63,6 @@ async def retry_with_backoff(func, *args, **kwargs):
             delay = base_delay * (2 ** attempt)  # Exponential backoff
             print(f"Attempt {attempt + 1} failed with error: {str(e)}. Retrying in {delay} seconds...")
             await asyncio.sleep(delay)
-
-def get_db_engine():
-    """Create SQLAlchemy engine for PostgreSQL"""
-    return create_engine(config.db_url)
 
 def initialize_database():
     """Create tables if they don't exist"""
@@ -198,7 +194,7 @@ def get_symbols_from_db(market='cn'):
     engine = get_db_engine()
     table_name = f"{market.lower()}_stocks_info"
     
-    filename = os.path.join('stock_lists', f'successful_symbols_cn.txt')
+    filename = os.path.join('stock_lists', f'successful_symbols_{market.lower()}.txt')
     finished_symbols = []
     if not os.path.exists(filename):
         print(f"File not found: {filename}")
@@ -482,36 +478,34 @@ async def process_stocks_batch(symbol_infos, engine, market='us'):
             
             print(f"Successfully downloaded history data {len(hist_data)} ")
 
-            with engine.begin() as conn:
-                for symbol in symbols:
-                    try:
-                        if market == 'us':
-                            if symbol not in hist_data:
-                                print(f"No data available for {symbol}")
-                                continue
-                            
-                            symbol_data = hist_data[symbol]
-                        else:
-                            symbol_data = hist_data[hist_data['Symbol'] == symbol]
-
-                        if symbol_data.empty:
-                            print(f"Empty data for {symbol}")
+            for symbol in symbols:
+                try:
+                    if market == 'us':
+                        if symbol not in hist_data:
+                            print(f"No data available for {symbol}")
                             continue
-                        symbol_data = symbol_data[symbol_data['Close'].notna()].copy()  # Fix fragmentation warning
-                        # Calculate moving averages before resetting index
-                        #symbol_data = calculate_moving_averages(symbol_data)
                         
-                        if market == 'cn':
-                            symbol_data['Date'] = pd.to_datetime(symbol_data['Date'])
-                            symbol_data.set_index('Date', inplace=True)
-                        
-                        # 计算移动平均线
-                        symbol_data = calculate_moving_averages(symbol_data)
+                        symbol_data = hist_data[symbol]
+                    else:
+                        symbol_data = hist_data[hist_data['Symbol'] == symbol]
 
-                        symbol_data.reset_index(inplace=True)
-                        print(f"Downloaded {len(symbol_data)} records for {symbol}")
-                        
-                        # Insert price data with moving averages
+                    if symbol_data.empty:
+                        print(f"Empty data for {symbol}")
+                        continue
+                    symbol_data = symbol_data[symbol_data['Close'].notna()].copy()  # Fix fragmentation warning
+                    
+                    if market == 'cn':
+                        symbol_data['Date'] = pd.to_datetime(symbol_data['Date'])
+                        symbol_data.set_index('Date', inplace=True)
+                    
+                    # 计算移动平均线
+                    symbol_data = calculate_moving_averages(symbol_data)
+
+                    symbol_data.reset_index(inplace=True)
+                    print(f"Downloaded {len(symbol_data)} records for {symbol}")
+                    
+                    # 每个 symbol 独立事务，避免单个失败导致整批回滚
+                    with engine.begin() as conn:
                         for _, row in symbol_data.iterrows():
                             conn.execute(text(f"""
                                 INSERT INTO {table_name} (
@@ -547,11 +541,11 @@ async def process_stocks_batch(symbol_infos, engine, market='us'):
                                 'ma60': round(float(row['ma60']), 2) if pd.notna(row['ma60']) else None,
                                 'ma200': None
                             })
-                        successful_symbols.add(symbol)
-                    except Exception as e:
-                        print(f"Error processing symbol {symbol}: {str(e)}")
-                        save_stock_to_file(symbol, market, 'failed', str(e))
-                        continue
+                    successful_symbols.add(symbol)
+                except Exception as e:
+                    print(f"Error processing symbol {symbol}: {str(e)}")
+                    save_stock_to_file(symbol, market, 'failed', str(e))
+                    continue
         return len(successful_symbols)
     except Exception as e:
         symbols_str = ', '.join(s['symbol'] for s in symbol_infos)

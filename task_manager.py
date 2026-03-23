@@ -1,14 +1,14 @@
 import asyncio
 import threading
 from datetime import datetime, timedelta
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from typing import Optional, Dict, Any
 import download_all_stock_pg
-from config import config
+from config import config, get_db_engine
 
 class TaskManager:
     def __init__(self):
-        self.engine = create_engine(config.db_url)
+        self.engine = get_db_engine()
         self._running_tasks = {}
         self._lock = threading.Lock()
 
