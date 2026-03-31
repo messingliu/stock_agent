@@ -39,7 +39,7 @@ BATCH_SIZE_CN = config.batch_sizes['cn']
 START_DATE = config.date_range['start_date']
 
 backfill = len(sys.argv) > 1 and sys.argv[1] == '--backfill'
-force_download = len(sys.argv) > 1 and sys.argv[1] == '--download'
+force_download = len(sys.argv) > 2 and sys.argv[2] == '--download'
 china_stock = len(sys.argv) > 1 and sys.argv[1] == '--china'
 
 # Semaphores for rate limiting
