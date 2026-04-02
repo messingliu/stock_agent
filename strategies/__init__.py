@@ -11,32 +11,64 @@ from .extreme_negative_positive import (
 )
 from .sell_indicators import (
     MA60BreakDownSellIndicator,
+    MADeathCrossSell,
+    HighVolumeStalledSell,
+    MACDDeathCrossSell,
+)
+from .buy_indicators import (
+    MAGoldenCrossBuy,
+    VolumeContractionBounceBuy,
+    MACDGoldenCrossBuy,
 )
 
 # 导出所有可用的策略
 AVAILABLE_STRATEGIES = {
+    # ── 买点信号 ──────────────────────────────────────────────────────────
     'GoldenLineDoubleGreenWin': GoldenLineDoubleGreenWin,
     'GoldenLineDoubleGreenWinWithConfirmation': GoldenLineDoubleGreenWinWithConfirmation,
-    'HighVolumeBreak': HighVolumeBreakStrategy,
     'ExtremeNegativePositive': ExtremeNegativePositiveStrategy,
+    'MAGoldenCross': MAGoldenCrossBuy,
+    'VolumeContractionBounce': VolumeContractionBounceBuy,
+    'MACDGoldenCross': MACDGoldenCrossBuy,
+    # ── 卖点信号 ──────────────────────────────────────────────────────────
+    'HighVolumeBreak': HighVolumeBreakStrategy,
     'MA60BreakDownSellIndicator': MA60BreakDownSellIndicator,
+    'MADeathCross': MADeathCrossSell,
+    'HighVolumeStalled': HighVolumeStalledSell,
+    'MACDDeathCross': MACDDeathCrossSell,
 }
 
 DAYS_MAP = {
+    # 买点
     'GoldenLineDoubleGreenWin': 3,
     'GoldenLineDoubleGreenWinWithConfirmation': 3,
+    'ExtremeNegativePositive': 60,
+    'MAGoldenCross': 30,
+    'VolumeContractionBounce': 20,
+    'MACDGoldenCross': 60,
+    # 卖点
     'HighVolumeBreak': 30,
-    'ExtremeNegativePositive': 60,  # 需要更多历史数据来判断下跌幅度
-    'MA60BreakDownSellIndicator': 60,  # 需要足够的历史数据来计算MA60
+    'MA60BreakDownSellIndicator': 60,
+    'MADeathCross': 30,
+    'HighVolumeStalled': 30,
+    'MACDDeathCross': 60,
 }
 
 __all__ = [
     'Strategy',
     'StockData',
+    # 买点
     'GoldenLineDoubleGreenWin',
     'GoldenLineDoubleGreenWinWithConfirmation',
-    'HighVolumeBreakStrategy',
     'ExtremeNegativePositiveStrategy',
+    'MAGoldenCrossBuy',
+    'VolumeContractionBounceBuy',
+    'MACDGoldenCrossBuy',
+    # 卖点
+    'HighVolumeBreakStrategy',
     'MA60BreakDownSellIndicator',
-    'AVAILABLE_STRATEGIES'
+    'MADeathCrossSell',
+    'HighVolumeStalledSell',
+    'MACDDeathCrossSell',
+    'AVAILABLE_STRATEGIES',
 ]

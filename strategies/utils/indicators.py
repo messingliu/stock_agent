@@ -46,3 +46,32 @@ def get_support_resistance(data: pd.DataFrame, period: int = 20) -> Tuple[float,
     resistance = recent_data['high'].max()
     
     return support, resistance
+
+def calc_ema(series: pd.Series, span: int) -> pd.Series:
+    """计算指数移动平均（EMA）"""
+    return series.ewm(span=span, adjust=False).mean()
+
+def calc_macd(close: pd.Series) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    """
+    计算 MACD 指标
+    返回 (dif, dea, hist)
+      DIF  = EMA12 - EMA26
+      DEA  = EMA9(DIF)
+      MACD柱 = 2 * (DIF - DEA)
+    """
+    ema12 = calc_ema(close, 12)
+    ema26 = calc_ema(close, 26)
+    dif = ema12 - ema26
+    dea = calc_ema(dif, 9)
+    hist = 2 * (dif - dea)
+    return dif, dea, hist
+
+def calc_rsi(close: pd.Series, period: int = 14) -> pd.Series:
+    """计算 RSI 相对强弱指数"""
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(com=period - 1, adjust=False).mean()
+    avg_loss = loss.ewm(com=period - 1, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, float('inf'))
+    return 100 - 100 / (1 + rs)
