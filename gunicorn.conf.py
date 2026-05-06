@@ -6,14 +6,21 @@ import os
 bind = "0.0.0.0:5000"
 backlog = 2048
 
-# Worker processes - use single worker on macOS to avoid fork issues
-workers = 1
-worker_class = "sync"
+# Worker processes
+# - gthread: each worker handles connections in a thread pool, so a slow TLS
+#   handshake only blocks one thread, not the whole accept loop. This is what
+#   fixed the "ERR_TIMED_OUT after some days" symptom on HTTPS:5000.
+# - 2 workers gives HA while one is being recycled by max_requests.
+workers = 2
+worker_class = "gthread"
+threads = 8
 worker_connections = 1000
-timeout = 30
+timeout = 30               # kills a worker stuck >30s (incl. bad TLS handshakes)
+graceful_timeout = 30
 keepalive = 2
 
-# Restart workers after this many requests, to prevent memory leaks
+# Restart workers after this many requests, to prevent FD/memory leaks from
+# accumulating over long runs.
 max_requests = 1000
 max_requests_jitter = 50
 
