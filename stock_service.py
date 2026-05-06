@@ -12,12 +12,28 @@ import ssl
 # 加载环境变量
 load_dotenv()
 
-# 创建Flask应用
-app = Flask(__name__)
-CORS(app)  # 启用CORS支持
-
 # 导入配置和任务管理器
 from config import config, get_db_engine
+
+# 创建Flask应用
+app = Flask(__name__)
+
+# --- CORS ---
+# Pulls origins from config.yaml:web_service.cors. Defaults to "*" (any origin,
+# no credentials) which is the right setting for a public JSON API being called
+# from tools like v0.dev previews. If you need to pass cookies/auth headers,
+# replace "*" with an explicit list of origins and set supports_credentials=True.
+_cors_cfg = config.get("web_service.cors") or {}
+_cors_origins = _cors_cfg.get("origins", ["*"]) if _cors_cfg.get("enabled", True) else []
+CORS(
+    app,
+    resources={r"/api/*": {"origins": _cors_origins}},
+    methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+    expose_headers=["Content-Type"],
+    supports_credentials=False,  # credentials + "*" origin is rejected by browsers
+    max_age=86400,               # cache preflight for 1 day
+)
 from task_manager import task_manager
 
 class StockService:
